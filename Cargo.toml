@@ -1,0 +1,9 @@
+[package]
+name = "two-kinect"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nusb = "=0.1.12"
+
+zune-jpeg = "0.4.14"
