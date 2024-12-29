@@ -6,13 +6,13 @@ use super::{Device, DeviceInfo, Opened};
 
 #[derive(Clone)]
 pub struct Closed {
-    pub(super) device_info: nusb::DeviceInfo,
+    pub device_info: nusb::DeviceInfo,
 }
 
 impl Device<Closed> {
-    pub fn open(self) -> Result<Device<Opened>, Error> {
+    pub async fn open(self) -> Result<Device<Opened>, Error> {
         Ok(Device {
-            inner: Opened::new(self.inner.device_info.open()?, self.inner.device_info),
+            inner: Opened::new(self.inner.device_info).await?,
         })
     }
 }

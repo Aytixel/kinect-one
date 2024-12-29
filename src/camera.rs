@@ -5,13 +5,13 @@ pub struct ColorParams {
     /*
         Intrinsic parameters
     */
-    // Focal length x (pixel)
+    /// Focal length x (pixel)
     pub fx: f32,
-    // Focal length y (pixel)
+    /// Focal length y (pixel)
     pub fy: f32,
-    // Principal point x (pixel)
+    /// Principal point x (pixel)
     pub cx: f32,
-    // Principal point y (pixel)
+    /// Principal point y (pixel)
     pub cy: f32,
 
     /*
@@ -52,22 +52,22 @@ pub struct ColorParams {
 /// Kinect v2 includes factory preset values for these parameters. They are used in depth image decoding, and Registration.
 #[derive(Default, Clone)]
 pub struct IrParams {
-    // Focal length x (pixel)
+    /// Focal length x (pixel)
     pub fx: f32,
-    // Focal length y (pixel)
+    /// Focal length y (pixel)
     pub fy: f32,
-    // Principal point x (pixel)
+    /// Principal point x (pixel)
     pub cx: f32,
-    // Principal point y (pixel)
+    /// Principal point y (pixel)
     pub cy: f32,
-    // Radial distortion coefficient, 1st-order
+    /// Radial distortion coefficient, 1st-order
     pub k1: f32,
-    // Radial distortion coefficient, 2nd-order
+    /// Radial distortion coefficient, 2nd-order
     pub k2: f32,
-    // Radial distortion coefficient, 3rd-order
+    /// Radial distortion coefficient, 3rd-order
     pub k3: f32,
-    // Tangential distortion coefficient
+    /// Tangential distortion coefficient
     pub p1: f32,
-    // Tangential distortion coefficient
+    /// Tangential distortion coefficient
     pub p2: f32,
 }

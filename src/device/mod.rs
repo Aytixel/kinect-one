@@ -37,10 +37,11 @@ impl Device<()> {
         }))
     }
 
-    pub fn open_default() -> Result<Device<Opened>, Error> {
+    pub async fn open_default() -> Result<Device<Opened>, Error> {
         Device::enumerate_device()?
             .next()
-            .ok_or(Error::NoDevice)
-            .and_then(Device::open)
+            .ok_or(Error::NoDevice)?
+            .open()
+            .await
     }
 }
