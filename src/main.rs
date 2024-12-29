@@ -1,22 +1,14 @@
-use std::time::Duration;
-
-use two_kinect::{
-    config::{LedId, LedSettings},
-    Device, Error,
-};
+use two_kinect::{Device, Error};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let mut device = Device::open_default().await?;
+    env_logger::init();
 
-    device
-        .set_led_status(LedSettings::blink(
-            LedId::Primary,
-            10,
-            100,
-            Duration::from_secs(1),
-        ))
-        .await?;
+    let mut device = Device::open_default(true).await?;
+
+    device.start().await?;
+
+    device.close().await?;
 
     Ok(())
 }

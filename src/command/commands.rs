@@ -113,23 +113,13 @@ pub fn set_mode_command(enabled: bool, mode: u32) -> Command<KINECT_CMD_SET_MODE
     }
 }
 
-pub fn u32_color_setting_command(
+pub fn color_setting_command(
     command: ColorSettingCommandType,
     value: u32,
 ) -> Command<KINECT_CMD_RGB_SETTING, COLOR_SETTING_RESPONSE_SIZE, COLOR_SETTING_RESPONSE_SIZE, 4> {
     Command {
         has_sequence: false,
         parameters: [1, 0, command as u32, value],
-    }
-}
-
-pub fn f32_color_setting_command(
-    command: ColorSettingCommandType,
-    value: f32,
-) -> Command<KINECT_CMD_RGB_SETTING, COLOR_SETTING_RESPONSE_SIZE, COLOR_SETTING_RESPONSE_SIZE, 4> {
-    Command {
-        has_sequence: false,
-        parameters: [1, 0, command as u32, value.to_bits()],
     }
 }
 

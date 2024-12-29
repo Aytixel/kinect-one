@@ -2,7 +2,7 @@ use std::time::Duration;
 
 // The following information was found by using the library released by Microsoft under MIT license,
 // https://github.com/Microsoft/MixedRealityCompanionKit/tree/master/KinectIPD/NuiSensor
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(u32)]
 pub enum ColorSettingCommandType {
     SetExposureMode = 0,
@@ -84,14 +84,14 @@ pub enum ColorSettingCommandType {
     GetFrameRate = 83,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(u16)]
 pub enum LedId {
     Primary = 0,
     Secondary = 1,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(u16)]
 pub enum LedMode {
     Constant = 0,
@@ -102,19 +102,25 @@ pub enum LedMode {
 // The following information was found by using the library released by Microsoft under MIT license,
 // https://github.com/Microsoft/MixedRealityCompanionKit/tree/master/KinectIPD/NuiSensor
 // Debugging the library assembly shows the original struct name was _PETRA_LED_STATE.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct LedSettings {
     id: LedId,
     mode: LedMode,
-    /// LED intensity  [0, 1000]
+    /// LED intensity [0, 1000]
     start_level: u16,
-    /// LED intensity  [0, 1000]
+    /// LED intensity [0, 1000]
     stop_level: u16,
     /// Blink interval
     interval: Duration,
 }
 
 impl LedSettings {
+    /// Constant mode
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - LED id
+    /// * `level` - LED intensity [0, 1000]
     pub fn constant(id: LedId, level: u16) -> Self {
         Self {
             id,
@@ -125,6 +131,14 @@ impl LedSettings {
         }
     }
 
+    /// Blink mode
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - LED id
+    /// * `start_level` - LED intensity [0, 1000]
+    /// * `stop_level` - LED intensity [0, 1000]
+    /// * `interval` - Blink interval
     pub fn blink(id: LedId, start_level: u16, stop_level: u16, interval: Duration) -> Self {
         Self {
             id,
@@ -144,19 +158,11 @@ impl LedSettings {
     }
 
     pub fn start_level(&self) -> u16 {
-        if self.start_level > 1000 {
-            1000
-        } else {
-            self.start_level
-        }
+        self.start_level.clamp(0, 1000)
     }
 
     pub fn stop_level(&self) -> u16 {
-        if self.start_level > 1000 {
-            1000
-        } else {
-            self.stop_level
-        }
+        self.stop_level.clamp(0, 1000)
     }
 
     pub fn interval(&self) -> Duration {

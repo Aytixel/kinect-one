@@ -10,7 +10,12 @@ pub struct Closed {
 }
 
 impl Device<Closed> {
-    pub async fn open(self) -> Result<Device<Opened>, Error> {
+    /// Open the device.
+    pub async fn open(self, reset: bool) -> Result<Device<Opened>, Error> {
+        if reset {
+            self.inner.device_info.open()?.reset()?;
+        }
+
         Ok(Device {
             inner: Opened::new(self.inner.device_info).await?,
         })
@@ -30,5 +35,13 @@ impl DeviceInfo for Device<Closed> {
 impl Debug for Device<Closed> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.device_info.fmt(f)
+    }
+}
+
+impl From<nusb::DeviceInfo> for Device<Closed> {
+    fn from(device_info: nusb::DeviceInfo) -> Self {
+        Device {
+            inner: Closed { device_info },
+        }
     }
 }

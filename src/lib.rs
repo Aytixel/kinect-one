@@ -1,7 +1,8 @@
-mod camera;
 mod command;
 mod device;
 mod settings;
+
+pub mod data;
 
 use std::io;
 
@@ -10,11 +11,10 @@ use thiserror::Error;
 pub use device::{Device, DeviceInfo};
 
 pub mod config {
-    pub use crate::camera::{ColorParams, IrParams};
-    pub use crate::settings::{LedId, LedMode, LedSettings};
+    pub use crate::settings::{ColorSettingCommandType, LedId, LedMode, LedSettings};
 
     /// Configuration of depth processing.
-    #[derive(Clone)]
+    #[derive(Debug, Clone, Copy)]
     pub struct Config {
         // Clip at this minimum distance (meter)
         pub min_depth: f32,
@@ -59,4 +59,37 @@ pub enum Error {
     PrematureComplete,
     #[error("Max iso packet for endpoint {0:x} is too small, expected {2}, got {1}")]
     MaxIsoPacket(u8, u16, u16),
+    #[error("Serial number reported {1} differs from serial number {0} in device protocol")]
+    SerialNumber(String, String),
+}
+
+trait FromBuffer {
+    fn from_buffer(bytes: &[u8]) -> Self;
+}
+
+impl FromBuffer for f32 {
+    fn from_buffer(bytes: &[u8]) -> Self {
+        let mut buffer = [0u8; 4];
+
+        buffer.copy_from_slice(bytes);
+        f32::from_le_bytes(buffer)
+    }
+}
+
+impl FromBuffer for u32 {
+    fn from_buffer(bytes: &[u8]) -> Self {
+        let mut buffer = [0u8; 4];
+
+        buffer.copy_from_slice(bytes);
+        u32::from_le_bytes(buffer)
+    }
+}
+
+impl FromBuffer for u16 {
+    fn from_buffer(bytes: &[u8]) -> Self {
+        let mut buffer = [0u8; 2];
+
+        buffer.copy_from_slice(bytes);
+        u16::from_le_bytes(buffer)
+    }
 }

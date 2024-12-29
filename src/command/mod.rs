@@ -1,12 +1,10 @@
 mod commands;
-mod response;
 
 use nusb::transfer::TransferError;
 
 pub use commands::*;
-pub use response::*;
 
-use crate::Error;
+use crate::{Error, FromBuffer};
 
 const COMPLETE_RESPONSE_LENGTH: usize = 16;
 const COMPLETE_RESPONSE_MAGIC: u32 = 0x0a6fe000;
@@ -36,21 +34,26 @@ impl CommandTransaction {
         const NPARAM: usize,
     >(
         &mut self,
-        command: &Command<COMMAND_ID, MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH, NPARAM>,
+        command: Command<COMMAND_ID, MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH, NPARAM>,
     ) -> Result<Vec<u8>, Error> {
-        let sequence = self.send(command).await?;
-
+        let sequence = self.send(&command).await?;
         let mut result = Vec::new();
 
         if MAX_RESPONSE_LENGTH > 0 {
-            result = self.receive(MIN_RESPONSE_LENGTH).await?;
+            result = self
+                .receive(MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH)
+                .await?;
 
-            if self.check_complete_response(&result, sequence).is_ok() {
-                return Err(Error::PrematureComplete);
-            }
+            self.check_complete_response(&result, sequence)
+                .map_err(|_| Error::PrematureComplete)?;
         }
 
-        let complete_result = self.receive(COMPLETE_RESPONSE_LENGTH as u32).await?;
+        let complete_result = self
+            .receive(
+                COMPLETE_RESPONSE_LENGTH as u32,
+                COMPLETE_RESPONSE_LENGTH as u32,
+            )
+            .await?;
 
         self.check_complete_response(&complete_result, sequence)?;
 
@@ -67,11 +70,8 @@ impl CommandTransaction {
         command: &Command<COMMAND_ID, MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH, NPARAM>,
     ) -> Result<u32, Error> {
         let sequence = if command.has_sequence() {
-            let sequence = self.sequence;
-
             self.sequence += 1;
-
-            sequence
+            self.sequence
         } else {
             0
         };
@@ -98,12 +98,12 @@ impl CommandTransaction {
         }
     }
 
-    async fn receive(&self, min_length: u32) -> Result<Vec<u8>, Error> {
+    async fn receive(&self, max_length: u32, min_length: u32) -> Result<Vec<u8>, Error> {
         let buffer = match self
             .interface
             .bulk_in(
                 self.in_endpoint,
-                nusb::transfer::RequestBuffer::new(min_length as usize),
+                nusb::transfer::RequestBuffer::new(max_length as usize),
             )
             .await
             .into_result()
@@ -127,14 +127,8 @@ impl CommandTransaction {
 
     fn check_complete_response(&self, result: &[u8], sequence: u32) -> Result<(), Error> {
         if result.len() == COMPLETE_RESPONSE_LENGTH {
-            let mut buffer = [0u8; 4];
-
-            buffer.copy_from_slice(&result[0..4]);
-
-            if u32::from_le_bytes(buffer) == COMPLETE_RESPONSE_MAGIC {
-                buffer.copy_from_slice(&result[4..8]);
-
-                let result_sequence = u32::from_le_bytes(buffer);
+            if u32::from_buffer(&result[0..4]) == COMPLETE_RESPONSE_MAGIC {
+                let result_sequence = u32::from_buffer(&result[4..8]);
 
                 if result_sequence != sequence {
                     return Err(Error::InvalidSequence(result_sequence, sequence));
