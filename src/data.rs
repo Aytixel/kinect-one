@@ -1,11 +1,95 @@
-use std::fmt;
+use std::{fmt, ptr::read_unaligned};
 
-use crate::FromBuffer;
+use crate::{
+    command::{DepthParamsResponse, FirmwareVersionResponse, P0TablesResponse, RgbParamsResponse},
+    config::DEPTH_FRAME_SIZE,
+};
+
+#[derive(Debug, Clone, Copy)]
+/// Parameters of depth processing.
+pub struct DepthProcessorParams {
+    pub ab_multiplier: f32,
+    pub ab_multiplier_per_frq: [f32; 3],
+    pub ab_output_multiplier: f32,
+
+    pub phase_in_rad: [f32; 3],
+
+    pub joint_bilateral_ab_threshold: f32,
+    pub joint_bilateral_max_edge: f32,
+    pub joint_bilateral_exp: f32,
+    pub gaussian_kernel: [f32; 9],
+
+    pub phase_offset: f32,
+    pub unambigious_dist: f32,
+    pub individual_ab_threshold: f32,
+    pub ab_threshold: f32,
+    pub ab_confidence_slope: f32,
+    pub ab_confidence_offset: f32,
+    pub min_dealias_confidence: f32,
+    pub max_dealias_confidence: f32,
+
+    pub edge_ab_avg_min_value: f32,
+    pub edge_ab_std_dev_threshold: f32,
+    pub edge_close_delta_threshold: f32,
+    pub edge_far_delta_threshold: f32,
+    pub edge_max_delta_threshold: f32,
+    pub edge_avg_delta_threshold: f32,
+    pub max_edge_count: f32,
+
+    pub kde_sigma_sqr: f32,
+    pub unwrapping_likelihood_scale: f32,
+    pub phase_confidence_scale: f32,
+    pub kde_threshold: f32,
+    pub kde_neigborhood_size: usize,
+    pub num_hyps: usize,
+
+    pub min_depth: f32,
+    pub max_depth: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PacketParams {
+    pub max_iso_packet_size: u16,
+    pub rgb_transfer_size: usize,
+    pub rgb_num_transfers: usize,
+    pub ir_packets_per_transfer: usize,
+    pub ir_num_transfers: usize,
+}
+
+impl Default for PacketParams {
+    fn default() -> Self {
+        if cfg!(target_os = "macos") {
+            Self {
+                max_iso_packet_size: 0,
+                rgb_transfer_size: 0x4000,
+                rgb_num_transfers: 20,
+                ir_packets_per_transfer: 128,
+                ir_num_transfers: 4,
+            }
+        } else if cfg!(target_os = "windows") {
+            Self {
+                max_iso_packet_size: 0,
+                rgb_transfer_size: 1048576,
+                rgb_num_transfers: 3,
+                ir_packets_per_transfer: 64,
+                ir_num_transfers: 8,
+            }
+        } else {
+            Self {
+                max_iso_packet_size: 0,
+                rgb_transfer_size: 0x4000,
+                rgb_num_transfers: 20,
+                ir_packets_per_transfer: 8,
+                ir_num_transfers: 60,
+            }
+        }
+    }
+}
 
 /// Color camera calibration parameters.
 /// Kinect v2 includes factory preset values for these parameters.
 /// They are used in Registration.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct ColorParams {
     /*
         Intrinsic parameters
@@ -55,33 +139,35 @@ pub struct ColorParams {
 
 impl From<&[u8]> for ColorParams {
     fn from(buffer: &[u8]) -> Self {
+        let raw = unsafe { read_unaligned(buffer.as_ptr() as *const RgbParamsResponse) };
+
         Self {
-            fx: f32::from_buffer(&buffer[1..5]),
-            fy: f32::from_buffer(&buffer[5..9]),
-            cx: f32::from_buffer(&buffer[9..13]),
-            cy: f32::from_buffer(&buffer[13..17]),
-            shift_d: f32::from_buffer(&buffer[17..21]),
-            shift_m: f32::from_buffer(&buffer[21..25]),
-            mx_x3y0: f32::from_buffer(&buffer[25..29]),
-            mx_x0y3: f32::from_buffer(&buffer[29..33]),
-            mx_x2y1: f32::from_buffer(&buffer[33..37]),
-            mx_x1y2: f32::from_buffer(&buffer[37..41]),
-            mx_x2y0: f32::from_buffer(&buffer[41..45]),
-            mx_x0y2: f32::from_buffer(&buffer[45..49]),
-            mx_x1y1: f32::from_buffer(&buffer[49..53]),
-            mx_x1y0: f32::from_buffer(&buffer[53..57]),
-            mx_x0y1: f32::from_buffer(&buffer[57..61]),
-            mx_x0y0: f32::from_buffer(&buffer[61..65]),
-            my_x3y0: f32::from_buffer(&buffer[65..69]),
-            my_x0y3: f32::from_buffer(&buffer[69..73]),
-            my_x2y1: f32::from_buffer(&buffer[73..77]),
-            my_x1y2: f32::from_buffer(&buffer[77..81]),
-            my_x2y0: f32::from_buffer(&buffer[81..85]),
-            my_x0y2: f32::from_buffer(&buffer[85..89]),
-            my_x1y1: f32::from_buffer(&buffer[89..93]),
-            my_x1y0: f32::from_buffer(&buffer[93..97]),
-            my_x0y1: f32::from_buffer(&buffer[97..101]),
-            my_x0y0: f32::from_buffer(&buffer[101..105]),
+            fx: raw.color_f,
+            fy: raw.color_f,
+            cx: raw.color_cx,
+            cy: raw.color_cy,
+            shift_d: raw.shift_d,
+            shift_m: raw.shift_m,
+            mx_x3y0: raw.mx_x3y0,
+            mx_x0y3: raw.mx_x0y3,
+            mx_x2y1: raw.mx_x2y1,
+            mx_x1y2: raw.mx_x1y2,
+            mx_x2y0: raw.mx_x2y0,
+            mx_x0y2: raw.mx_x0y2,
+            mx_x1y1: raw.mx_x1y1,
+            mx_x1y0: raw.mx_x1y0,
+            mx_x0y1: raw.mx_x0y1,
+            mx_x0y0: raw.mx_x0y0,
+            my_x3y0: raw.my_x3y0,
+            my_x0y3: raw.my_x0y3,
+            my_x2y1: raw.my_x2y1,
+            my_x1y2: raw.my_x1y2,
+            my_x2y0: raw.my_x2y0,
+            my_x0y2: raw.my_x0y2,
+            my_x1y1: raw.my_x1y1,
+            my_x1y0: raw.my_x1y0,
+            my_x0y1: raw.my_x0y1,
+            my_x0y0: raw.my_x0y0,
         }
     }
 }
@@ -89,7 +175,7 @@ impl From<&[u8]> for ColorParams {
 /// IR camera intrinsic calibration parameters.
 /// Kinect v2 includes factory preset values for these parameters.
 /// They are used in depth image decoding, and Registration.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct IrParams {
     /// Focal length x (pixel)
     pub fx: f32,
@@ -113,41 +199,59 @@ pub struct IrParams {
 
 impl From<&[u8]> for IrParams {
     fn from(buffer: &[u8]) -> Self {
+        let raw = unsafe { read_unaligned(buffer.as_ptr() as *const DepthParamsResponse) };
+
         Self {
-            fx: f32::from_buffer(&buffer[0..4]),
-            fy: f32::from_buffer(&buffer[4..8]),
-            cx: f32::from_buffer(&buffer[12..16]),
-            cy: f32::from_buffer(&buffer[16..20]),
-            k1: f32::from_buffer(&buffer[20..24]),
-            k2: f32::from_buffer(&buffer[24..28]),
-            k3: f32::from_buffer(&buffer[28..32]),
-            p1: f32::from_buffer(&buffer[36..40]),
-            p2: f32::from_buffer(&buffer[40..44]),
+            fx: raw.fx,
+            fy: raw.fy,
+            cx: raw.cx,
+            cy: raw.cy,
+            k1: raw.k1,
+            k2: raw.k2,
+            k3: raw.k3,
+            p1: raw.p1,
+            p2: raw.p2,
         }
     }
 }
 
-#[derive(Debug)]
+pub type P0Table = [u16; DEPTH_FRAME_SIZE];
+
+#[derive(Debug, Clone)]
+pub struct P0Tables {
+    pub p0_table0: Box<P0Table>,
+    pub p0_table1: Box<P0Table>,
+    pub p0_table2: Box<P0Table>,
+}
+
+impl From<&[u8]> for P0Tables {
+    fn from(buffer: &[u8]) -> Self {
+        let raw = unsafe { read_unaligned(buffer.as_ptr() as *const P0TablesResponse) };
+
+        Self {
+            p0_table0: Box::new(raw.p0_table0),
+            p0_table1: Box::new(raw.p0_table1),
+            p0_table2: Box::new(raw.p0_table2),
+        }
+    }
+}
+
+impl Default for P0Tables {
+    fn default() -> Self {
+        Self {
+            p0_table0: Box::new([0u16; DEPTH_FRAME_SIZE]),
+            p0_table1: Box::new([0u16; DEPTH_FRAME_SIZE]),
+            p0_table2: Box::new([0u16; DEPTH_FRAME_SIZE]),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct FirwareVersion {
     pub maj: u16,
     pub min: u16,
     pub revision: u32,
     pub build: u32,
-}
-
-impl From<&[u8]> for FirwareVersion {
-    fn from(buffer: &[u8]) -> Self {
-        let maj_min = u32::from_buffer(&buffer[0..4]);
-        let revision = u32::from_buffer(&buffer[4..8]);
-        let build = u32::from_buffer(&buffer[8..12]);
-
-        Self {
-            maj: (maj_min >> 16) as u16,
-            min: (maj_min & 0xffff) as u16,
-            revision,
-            build,
-        }
-    }
 }
 
 impl fmt::Display for FirwareVersion {
@@ -156,5 +260,18 @@ impl fmt::Display for FirwareVersion {
             "{}.{}.{}.{}",
             self.maj, self.min, self.revision, self.build
         ))
+    }
+}
+
+impl From<&[u8]> for FirwareVersion {
+    fn from(buffer: &[u8]) -> Self {
+        let raw = unsafe { read_unaligned(buffer.as_ptr() as *const FirmwareVersionResponse) };
+
+        Self {
+            maj: raw.maj,
+            min: raw.min,
+            revision: raw.revision,
+            build: raw.build,
+        }
     }
 }

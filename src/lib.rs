@@ -1,8 +1,10 @@
 mod command;
 mod device;
+mod packet;
 mod settings;
 
 pub mod data;
+pub mod processor;
 
 use std::io;
 
@@ -12,6 +14,8 @@ pub use device::{Device, DeviceInfo};
 
 pub mod config {
     pub use crate::settings::{ColorSettingCommandType, LedId, LedMode, LedSettings};
+
+    pub const DEPTH_FRAME_SIZE: usize = 512 * 424;
 
     /// Configuration of depth processing.
     #[derive(Debug, Clone, Copy)]
@@ -47,6 +51,8 @@ pub enum Error {
     Transfer(#[from] nusb::transfer::TransferError),
     #[error(transparent)]
     ActiveConfiguration(#[from] nusb::descriptors::ActiveConfigurationError),
+    #[error("Processing error: {0}")]
+    Processing(Box<dyn std::error::Error>),
     #[error("No Kinect connected")]
     NoDevice,
     #[error("The number of sent bytes differs, expected {1} got {0}")]
@@ -71,7 +77,7 @@ impl FromBuffer for f32 {
     fn from_buffer(bytes: &[u8]) -> Self {
         let mut buffer = [0u8; 4];
 
-        buffer.copy_from_slice(bytes);
+        buffer.copy_from_slice(&bytes[..4]);
         f32::from_le_bytes(buffer)
     }
 }
@@ -80,7 +86,7 @@ impl FromBuffer for u32 {
     fn from_buffer(bytes: &[u8]) -> Self {
         let mut buffer = [0u8; 4];
 
-        buffer.copy_from_slice(bytes);
+        buffer.copy_from_slice(&bytes[..4]);
         u32::from_le_bytes(buffer)
     }
 }
@@ -89,7 +95,7 @@ impl FromBuffer for u16 {
     fn from_buffer(bytes: &[u8]) -> Self {
         let mut buffer = [0u8; 2];
 
-        buffer.copy_from_slice(bytes);
+        buffer.copy_from_slice(&bytes[..2]);
         u16::from_le_bytes(buffer)
     }
 }

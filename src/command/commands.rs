@@ -1,6 +1,8 @@
 use crate::{config::LedSettings, settings::ColorSettingCommandType};
 
-use super::Command;
+use super::{
+    ColorSettingResponse, Command, DepthParamsResponse, P0TablesResponse, RgbParamsResponse,
+};
 
 // Kinect commands id
 const KINECT_CMD_READ_FIRMWARE_VERSIONS: u32 = 0x02;
@@ -18,12 +20,10 @@ const KINECT_CMD_STOP: u32 = 0x0a;
 const KINECT_CMD_SHUTDOWN: u32 = 0x00;
 
 // Response size
-const P0_TABLES_RESPONSE_SIZE: u32 =
-    (size_of::<u32>() as u32 * 8) + (size_of::<u16>() as u32 * (512 * 424 * 3 + 6));
-const DEPTH_PARAMS_RESPONSE_SIZE: u32 = size_of::<u32>() as u32 * 23;
-const RGB_PARAMS_RESPONSE_SIZE: u32 =
-    (size_of::<u32>() as u32 * (28 * 23 * 5 + 25)) + size_of::<u8>() as u32;
-const COLOR_SETTING_RESPONSE_SIZE: u32 = size_of::<u32>() as u32 * 4;
+const P0_TABLES_RESPONSE_SIZE: u32 = size_of::<P0TablesResponse>() as u32;
+const DEPTH_PARAMS_RESPONSE_SIZE: u32 = size_of::<DepthParamsResponse>() as u32;
+const RGB_PARAMS_RESPONSE_SIZE: u32 = size_of::<RgbParamsResponse>() as u32;
+const COLOR_SETTING_RESPONSE_SIZE: u32 = size_of::<ColorSettingResponse>() as u32;
 
 pub fn read_firware_versions_command() -> Command<KINECT_CMD_READ_FIRMWARE_VERSIONS, 0x200, 0x200, 0>
 {

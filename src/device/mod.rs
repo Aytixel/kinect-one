@@ -3,9 +3,8 @@ mod opened;
 
 use std::fmt::Debug;
 
-use nusb::list_devices;
-
 pub use closed::Closed;
+use nusb::list_devices;
 pub use opened::Opened;
 
 use crate::Error;

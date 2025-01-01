@@ -1,8 +1,10 @@
 mod commands;
+mod response;
 
 use nusb::transfer::TransferError;
 
 pub use commands::*;
+pub use response::*;
 
 use crate::{Error, FromBuffer};
 

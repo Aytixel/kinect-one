@@ -1,18 +1,25 @@
 use std::{
     fmt::{self, Debug},
+    ptr::read_unaligned,
     time::Duration,
 };
 
-use nusb::transfer::{ControlOut, ControlType, EndpointType, Recipient};
+use nusb::transfer::{ControlOut, ControlType, EndpointType, Recipient, RequestBuffer};
 
 use crate::{
     command::{
         color_setting_command, init_streams_command, led_setting_command,
         read_depth_params_command, read_firware_versions_command, read_p0_tables_command,
         read_rgb_params_command, read_serial_number_command, set_mode_command,
-        set_stream_state_command, stop_command, CommandTransaction,
+        set_stream_state_command, shutdown_command, stop_command, ColorSettingResponse,
+        CommandTransaction,
     },
-    data::{ColorParams, FirwareVersion, IrParams},
+    data::{ColorParams, FirwareVersion, IrParams, P0Tables, PacketParams},
+    packet::{
+        parser::{DepthStreamParser, RgbStreamParser},
+        RgbPacket,
+    },
+    processor::ProcessorTrait,
     settings::{ColorSettingCommandType, LedSettings},
     Error, FromBuffer,
 };
@@ -53,7 +60,6 @@ const REQUEST_SET_SEL: u8 = 0x30;
 const REQUEST_SET_FEATURE: u8 = 0x03;
 const DT_SS_ENDPOINT_COMPANION: u8 = 0x30;
 
-#[derive(Clone)]
 pub struct Opened {
     command_transaction: CommandTransaction,
     interfaces: [nusb::Interface; 2],
@@ -61,6 +67,11 @@ pub struct Opened {
     device_info: nusb::DeviceInfo,
     color_params: ColorParams,
     ir_params: IrParams,
+    p0_tables: P0Tables,
+    packet_params: PacketParams,
+    rgb_stream_parser: RgbStreamParser,
+    depth_stream_parser: DepthStreamParser,
+    running: bool,
 }
 
 impl Opened {
@@ -89,7 +100,7 @@ impl Opened {
             .await
             .status?;
 
-        let opened_device = Self {
+        let mut opened_device = Self {
             command_transaction: CommandTransaction::new(
                 CONTROL_IN_ENDPOINT,
                 CONTROL_OUT_ENDPOINT,
@@ -100,6 +111,11 @@ impl Opened {
             device_info,
             color_params: Default::default(),
             ir_params: Default::default(),
+            p0_tables: Default::default(),
+            packet_params: Default::default(),
+            rgb_stream_parser: RgbStreamParser::new(),
+            depth_stream_parser: DepthStreamParser::new(),
+            running: false,
         };
 
         // set power state latencies
@@ -112,16 +128,16 @@ impl Opened {
             .set_video_transfer_function_state(false)
             .await?;
         // get ir max packet size
-        if let Some(max_iso_packet_size) =
-            opened_device.get_max_iso_packet_size(1, 1, IR_IN_ENDPOINT)
-        {
-            if max_iso_packet_size < 0x8400 {
-                return Err(Error::MaxIsoPacket(
-                    IR_IN_ENDPOINT,
-                    max_iso_packet_size,
-                    0x8400,
-                ));
-            }
+        opened_device.packet_params.max_iso_packet_size = opened_device
+            .get_max_iso_packet_size(1, 1, IR_IN_ENDPOINT)
+            .unwrap_or(0);
+
+        if opened_device.packet_params.max_iso_packet_size < 0x8400 {
+            return Err(Error::MaxIsoPacket(
+                IR_IN_ENDPOINT,
+                opened_device.packet_params.max_iso_packet_size,
+                0x8400,
+            ));
         }
 
         Ok(opened_device)
@@ -232,24 +248,13 @@ impl Opened {
 impl Device<Opened> {
     /// Start data processing with both RGB and depth streams.
     /// All above configuration must only be called before start() or after stop().
-    ///
-    /// FrameListener will receive frames when the device is running.
     pub async fn start(&mut self) -> Result<(), Error> {
-        self.start_streams(true, true).await
-    }
+        if self.inner.running {
+            return Ok(());
+        }
 
-    /// Start data processing with or without some streams.
-    /// FrameListener will receive enabled frames when the device is running.
-    ///
-    /// # Arguments
-    ///
-    /// * `enable_rgb` - Whether to enable rgb stream.
-    /// * `enable_depth` - Whether to enable depth stream.
-    pub async fn start_streams(
-        &mut self,
-        enable_rgb: bool,
-        enable_depth: bool,
-    ) -> Result<(), Error> {
+        self.inner.running = true;
+
         self.inner.set_video_transfer_function_state(true).await?;
 
         let usb_serial_number = self.serial_number().unwrap_or_default().to_string();
@@ -262,32 +267,27 @@ impl Device<Opened> {
             ));
         }
 
-        let ir_params = IrParams::from(
+        self.inner.ir_params = IrParams::from(
             self.inner
                 .command_transaction
                 .execute(read_depth_params_command())
                 .await?
                 .as_slice(),
         );
-
-        self.set_ir_params(&ir_params);
-
-        let p0_tables = self
-            .inner
-            .command_transaction
-            .execute(read_p0_tables_command())
-            .await?;
-        let color_params = ColorParams::from(
+        self.inner.color_params = ColorParams::from(
             self.inner
                 .command_transaction
                 .execute(read_rgb_params_command())
                 .await?
                 .as_slice(),
         );
-
-        self.set_color_params(&color_params);
-
-        todo!("deserialize data and set value");
+        self.inner.p0_tables = P0Tables::from(
+            self.inner
+                .command_transaction
+                .execute(read_p0_tables_command())
+                .await?
+                .as_slice(),
+        );
 
         self.inner
             .command_transaction
@@ -307,12 +307,31 @@ impl Device<Opened> {
             .execute(set_stream_state_command(true))
             .await?;
 
-        todo!();
-        if enable_depth {}
-
-        if enable_rgb {}
-
         Ok(())
+    }
+
+    pub async fn process_rgb_frame<O, P: ProcessorTrait<RgbPacket, O>>(
+        &mut self,
+        processor: &P,
+    ) -> Result<O, Error> {
+        loop {
+            let buffer = self
+                .inner
+                .get_interface(InterfaceId::ControlAndRgb)
+                .bulk_in(
+                    RGB_IN_ENDPOINT,
+                    RequestBuffer::new(self.inner.packet_params.rgb_transfer_size),
+                )
+                .await
+                .into_result()?;
+
+            if let Some(packet) = self.inner.rgb_stream_parser.parse(buffer) {
+                return processor
+                    .process(packet)
+                    .await
+                    .map_err(|error| Error::Processing(error));
+            }
+        }
     }
 
     pub async fn get_firware_versions(&mut self) -> Result<Vec<FirwareVersion>, Error> {
@@ -340,34 +359,19 @@ impl Device<Opened> {
         Ok(String::from_utf8_lossy(&buffer).to_string())
     }
 
-    /// Get current color parameters.
+    /// Get color parameters.
     pub fn get_color_params(&self) -> &ColorParams {
         &self.inner.color_params
     }
 
-    /// Get current depth parameters.
+    /// Get depth parameters.
     pub fn get_ir_params(&self) -> &IrParams {
         &self.inner.ir_params
     }
 
-    /// Replace factory preset color camera parameters.
-    /// We do not have a clear understanding of the meaning of the parameters right now.
-    /// You probably want to leave it as it is.
-    pub fn set_color_params(&mut self, color_params: &ColorParams) {
-        self.inner.color_params = color_params.clone();
-    }
-
-    /// Replace factory preset depth camera parameters.
-    /// This decides accuracy in depth images. You are recommended to provide calibrated values.
-    pub fn set_ir_params(&mut self, ir_params: &IrParams) {
-        self.inner.ir_params = ir_params.clone();
-
-        todo!("set ir params in the depth packet processor");
-    }
-
-    /// Configure depth processing.
-    pub fn set_config(&mut self) {
-        todo!("set config in the depth packet processor");
+    /// Get p0 tables.
+    pub fn get_p0_tables(&self) -> &P0Tables {
+        &self.inner.p0_tables
     }
 
     /// Sets the RGB camera to fully automatic exposure setting.
@@ -380,24 +384,17 @@ impl Device<Opened> {
         &mut self,
         exposure_compensation: f32,
     ) -> Result<(), Error> {
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(ColorSettingCommandType::SetAcs, 0))
+        todo!("test if its working");
+
+        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)
             .await?;
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(
-                ColorSettingCommandType::SetExposureMode,
-                0,
-            ))
+        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 0)
             .await?;
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(
-                ColorSettingCommandType::SetExposureCompensation,
-                exposure_compensation.clamp(-2.0, 2.0).to_bits(),
-            ))
-            .await?;
+        self.set_color_setting(
+            ColorSettingCommandType::SetExposureCompensation,
+            exposure_compensation.clamp(-2.0, 2.0).to_bits(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -424,26 +421,19 @@ impl Device<Opened> {
         &mut self,
         pseudo_exposure_time: Duration,
     ) -> Result<(), Error> {
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(ColorSettingCommandType::SetAcs, 0))
+        todo!("test if its working");
+
+        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)
             .await?;
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(
-                ColorSettingCommandType::SetExposureMode,
-                3,
-            ))
+        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 3)
             .await?;
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(
-                ColorSettingCommandType::SetExposureTimeMs,
-                ((pseudo_exposure_time.as_secs_f64() / 1000.0) as f32)
-                    .clamp(0.0, 66.0)
-                    .to_bits(),
-            ))
-            .await?;
+        self.set_color_setting(
+            ColorSettingCommandType::SetExposureTimeMs,
+            ((pseudo_exposure_time.as_secs_f64() / 1000.0) as f32)
+                .clamp(0.0, 66.0)
+                .to_bits(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -459,33 +449,24 @@ impl Device<Opened> {
         integration_time: Duration,
         analog_gain: f32,
     ) -> Result<(), Error> {
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(ColorSettingCommandType::SetAcs, 0))
+        todo!("test if its working");
+
+        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)
             .await?;
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(
-                ColorSettingCommandType::SetExposureMode,
-                4,
-            ))
+        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 4)
             .await?;
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(
-                ColorSettingCommandType::SetIntegrationTime,
-                ((integration_time.as_secs_f64() / 1000.0) as f32)
-                    .clamp(0.0, 66.0)
-                    .to_bits(),
-            ))
-            .await?;
-        self.inner
-            .command_transaction
-            .execute(color_setting_command(
-                ColorSettingCommandType::SetAnalogGain,
-                analog_gain.clamp(1.0, 4.0).to_bits(),
-            ))
-            .await?;
+        self.set_color_setting(
+            ColorSettingCommandType::SetIntegrationTime,
+            ((integration_time.as_secs_f64() / 1000.0) as f32)
+                .clamp(0.0, 66.0)
+                .to_bits(),
+        )
+        .await?;
+        self.set_color_setting(
+            ColorSettingCommandType::SetAnalogGain,
+            analog_gain.clamp(1.0, 4.0).to_bits(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -496,6 +477,8 @@ impl Device<Opened> {
         command: ColorSettingCommandType,
         value: u32,
     ) -> Result<(), Error> {
+        todo!("test if its working");
+
         self.inner
             .command_transaction
             .execute(color_setting_command(command, value))
@@ -509,14 +492,18 @@ impl Device<Opened> {
         &mut self,
         command: ColorSettingCommandType,
     ) -> Result<u32, Error> {
+        todo!("test if its working");
+
         let bytes = self
             .inner
             .command_transaction
             .execute(color_setting_command(command, 0))
             .await?;
-        const OFFSET: usize = size_of::<u32>() * 3;
 
-        Ok(u32::from_buffer(&bytes[OFFSET..OFFSET + 4]))
+        Ok(unsafe {
+            read_unaligned(bytes.as_slice() as *const [u8] as *const ColorSettingResponse)
+        }
+        .data)
     }
 
     /// Set the settings of a Kinect LED.
@@ -535,6 +522,12 @@ impl Device<Opened> {
 
     /// Stop data processing.
     pub async fn stop(&mut self) -> Result<(), Error> {
+        if !self.inner.running {
+            return Ok(());
+        }
+
+        self.inner.running = false;
+
         self.inner.set_ir_state(false)?;
         self.inner
             .command_transaction
@@ -560,6 +553,14 @@ impl Device<Opened> {
             .command_transaction
             .execute(set_mode_command(false, 0))
             .await?;
+        self.inner
+            .command_transaction
+            .execute(set_mode_command(true, 0))
+            .await?;
+        self.inner
+            .command_transaction
+            .execute(set_mode_command(false, 0))
+            .await?;
         self.inner.set_video_transfer_function_state(false).await
     }
 
@@ -574,21 +575,10 @@ impl Device<Opened> {
             .command_transaction
             .execute(set_mode_command(false, 0))
             .await?;
-
-        #[cfg(target_os = "macos")]
-        {
-            /* Kinect will disappear on Mac OS X regardless during close().
-             * Painstaking effort could not determine the root cause.
-             * See https://github.com/OpenKinect/libfreenect2/issues/539
-             *
-             * Shut down Kinect explicitly on Mac and wait a fixed time.
-             */
-            self.inner
-                .command_transaction
-                .execute(crate::command::shutdown_command())
-                .await?;
-            tokio::time::sleep(Duration::from_secs(4 * 1000)).await;
-        }
+        self.inner
+            .command_transaction
+            .execute(shutdown_command())
+            .await?;
 
         Ok(Device {
             inner: Closed {
