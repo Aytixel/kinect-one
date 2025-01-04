@@ -4,7 +4,7 @@ use mozjpeg::Decompress;
 
 use crate::processor::ProcessorTrait;
 
-use super::{ColorSpace, Frame, RgbPacket};
+use super::{ColorSpace, RgbFrame, RgbPacket};
 
 impl From<mozjpeg::ColorSpace> for ColorSpace {
     fn from(value: mozjpeg::ColorSpace) -> Self {
@@ -50,8 +50,8 @@ impl MozRgbProcessor {
     }
 }
 
-impl ProcessorTrait<RgbPacket, Frame> for MozRgbProcessor {
-    async fn process(&self, input: RgbPacket) -> Result<Frame, Box<dyn Error>> {
+impl ProcessorTrait<RgbPacket, RgbFrame> for MozRgbProcessor {
+    async fn process(&self, input: RgbPacket) -> Result<RgbFrame, Box<dyn Error>> {
         let mut decoder = Decompress::new_mem(&input.jpeg_buffer)?;
 
         decoder.do_fancy_upsampling(self.fancy_upsampling);
@@ -60,7 +60,7 @@ impl ProcessorTrait<RgbPacket, Frame> for MozRgbProcessor {
         let mut decoder = decoder.to_colorspace(self.colorspace)?;
         let buffer = decoder.read_scanlines()?;
 
-        Ok(Frame {
+        Ok(RgbFrame {
             color_space: decoder.color_space().into(),
             width: decoder.width(),
             height: decoder.height(),

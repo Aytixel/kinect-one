@@ -49,7 +49,7 @@ impl ColorSpace {
 }
 
 #[derive(Clone)]
-pub struct Frame {
+pub struct RgbFrame {
     pub color_space: ColorSpace,
     pub width: usize,
     pub height: usize,
@@ -62,7 +62,7 @@ pub struct Frame {
     pub gamma: f32,
 }
 
-impl Debug for Frame {
+impl Debug for RgbFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Frame")
             .field("color_space", &self.color_space)

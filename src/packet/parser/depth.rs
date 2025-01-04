@@ -1,6 +1,6 @@
-use std::{ptr::read_unaligned, u32};
+use std::u32;
 
-use crate::{config::DEPTH_FRAME_SIZE, packet::DepthPacket};
+use crate::{config::DEPTH_FRAME_SIZE, packet::DepthPacket, ReadUnaligned};
 
 /** Footer of a depth packet. */
 #[repr(C, packed)]
@@ -13,6 +13,8 @@ struct DepthSubPacketFooter {
     length: u32,
     fields: [u32; 32],
 }
+
+impl ReadUnaligned for DepthSubPacketFooter {}
 
 pub struct DepthStreamParser {
     memory: Vec<u8>,
@@ -42,16 +44,18 @@ impl DepthStreamParser {
             return None;
         }
 
-        let footer = (self.worker.len() + buffer.len()
-            == Self::WORKER_CAPACITY + size_of::<DepthSubPacketFooter>())
-        .then(|| unsafe {
-            read_unaligned(
-                buffer
-                    .drain(buffer.len() - size_of::<DepthSubPacketFooter>()..)
-                    .collect::<Vec<_>>()
-                    .as_slice() as *const [u8] as *const DepthSubPacketFooter,
+        let footer = if self.worker.len() + buffer.len()
+            == Self::WORKER_CAPACITY + DepthSubPacketFooter::size()
+        {
+            DepthSubPacketFooter::read_unaligned(
+                &buffer
+                    .drain(buffer.len() - DepthSubPacketFooter::size()..)
+                    .collect::<Vec<_>>(),
             )
-        });
+            .ok()
+        } else {
+            None
+        };
 
         if self.worker.len() + buffer.len() > Self::WORKER_CAPACITY {
             self.worker.clear();

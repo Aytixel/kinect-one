@@ -20,6 +20,15 @@ pub trait ProcessorTrait<I, O> {
         }
     }
 }
+
+pub struct NoopProcessor;
+
+impl<T> ProcessorTrait<T, ()> for NoopProcessor {
+    async fn process(&self, _: T) -> Result<(), Box<dyn Error>> {
+        Ok(())
+    }
+}
+
 pub struct PipedProcessor<'a, 'b, I, T, O, P1, P2>
 where
     P1: ProcessorTrait<I, T>,

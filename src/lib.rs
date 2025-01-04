@@ -6,7 +6,7 @@ mod settings;
 pub mod data;
 pub mod processor;
 
-use std::io;
+use std::{any::type_name, io, ptr::read_unaligned};
 
 use thiserror::Error;
 
@@ -67,6 +67,24 @@ pub enum Error {
     MaxIsoPacket(u8, u16, u16),
     #[error("Serial number reported {1} differs from serial number {0} in device protocol")]
     SerialNumber(String, String),
+    #[error("Insufficient size can't read {0}")]
+    UnalignedRead(&'static str),
+    #[error("{0} can happen only while running")]
+    OnlyWhileRunning(&'static str),
+}
+
+trait ReadUnaligned: Sized {
+    fn read_unaligned(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() >= Self::size() {
+            Ok(unsafe { read_unaligned(bytes.as_ptr() as *const Self) })
+        } else {
+            Err(Error::UnalignedRead(type_name::<Self>()))
+        }
+    }
+
+    fn size() -> usize {
+        size_of::<Self>()
+    }
 }
 
 trait FromBuffer {

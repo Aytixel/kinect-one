@@ -11,8 +11,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut device = Device::open_default(true).await?;
 
-    println!("{:?}", device.get_firware_versions().await?[3]);
-
     device.start().await?;
 
     println!(

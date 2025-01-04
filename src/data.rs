@@ -3,6 +3,7 @@ use std::{fmt, ptr::read_unaligned};
 use crate::{
     command::{DepthParamsResponse, FirmwareVersionResponse, P0TablesResponse, RgbParamsResponse},
     config::DEPTH_FRAME_SIZE,
+    Error, ReadUnaligned,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -137,11 +138,13 @@ pub struct ColorParams {
     pub my_x0y0: f32,
 }
 
-impl From<&[u8]> for ColorParams {
-    fn from(buffer: &[u8]) -> Self {
-        let raw = unsafe { read_unaligned(buffer.as_ptr() as *const RgbParamsResponse) };
+impl TryFrom<&[u8]> for ColorParams {
+    type Error = Error;
 
-        Self {
+    fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
+        let raw = RgbParamsResponse::read_unaligned(buffer)?;
+
+        Ok(Self {
             fx: raw.color_f,
             fy: raw.color_f,
             cx: raw.color_cx,
@@ -168,7 +171,7 @@ impl From<&[u8]> for ColorParams {
             my_x1y0: raw.my_x1y0,
             my_x0y1: raw.my_x0y1,
             my_x0y0: raw.my_x0y0,
-        }
+        })
     }
 }
 
@@ -197,11 +200,13 @@ pub struct IrParams {
     pub p2: f32,
 }
 
-impl From<&[u8]> for IrParams {
-    fn from(buffer: &[u8]) -> Self {
-        let raw = unsafe { read_unaligned(buffer.as_ptr() as *const DepthParamsResponse) };
+impl TryFrom<&[u8]> for IrParams {
+    type Error = Error;
 
-        Self {
+    fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
+        let raw = DepthParamsResponse::read_unaligned(buffer)?;
+
+        Ok(Self {
             fx: raw.fx,
             fy: raw.fy,
             cx: raw.cx,
@@ -211,7 +216,7 @@ impl From<&[u8]> for IrParams {
             k3: raw.k3,
             p1: raw.p1,
             p2: raw.p2,
-        }
+        })
     }
 }
 
@@ -224,15 +229,21 @@ pub struct P0Tables {
     pub p0_table2: Box<P0Table>,
 }
 
-impl From<&[u8]> for P0Tables {
-    fn from(buffer: &[u8]) -> Self {
+impl TryFrom<&[u8]> for P0Tables {
+    type Error = Error;
+
+    fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < P0TablesResponse::size() {
+            return Err(Error::UnalignedRead("P0TablesResponse"));
+        }
+
         let raw = unsafe { read_unaligned(buffer.as_ptr() as *const P0TablesResponse) };
 
-        Self {
+        Ok(Self {
             p0_table0: Box::new(raw.p0_table0),
             p0_table1: Box::new(raw.p0_table1),
             p0_table2: Box::new(raw.p0_table2),
-        }
+        })
     }
 }
 
@@ -263,15 +274,17 @@ impl fmt::Display for FirwareVersion {
     }
 }
 
-impl From<&[u8]> for FirwareVersion {
-    fn from(buffer: &[u8]) -> Self {
-        let raw = unsafe { read_unaligned(buffer.as_ptr() as *const FirmwareVersionResponse) };
+impl TryFrom<&[u8]> for FirwareVersion {
+    type Error = Error;
 
-        Self {
+    fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
+        let raw = FirmwareVersionResponse::read_unaligned(buffer)?;
+
+        Ok(Self {
             maj: raw.maj,
             min: raw.min,
             revision: raw.revision,
             build: raw.build,
-        }
+        })
     }
 }
