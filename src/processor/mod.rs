@@ -1,10 +1,26 @@
 pub mod depth;
 pub mod rgb;
 
-use std::{error::Error, future::Future, marker::PhantomData};
+use std::{future::Future, marker::PhantomData};
+
+use crate::Error;
+
+pub trait ProcessTrait: Sized {
+    fn process<O, P: ProcessorTrait<Self, O>>(
+        self,
+        processor: &P,
+    ) -> impl Future<Output = Result<O, Error>> {
+        async {
+            processor
+                .process(self)
+                .await
+                .map_err(|error| Error::Processing(error))
+        }
+    }
+}
 
 pub trait ProcessorTrait<I, O> {
-    fn process(&self, input: I) -> impl Future<Output = Result<O, Box<dyn Error>>>;
+    fn process(&self, input: I) -> impl Future<Output = Result<O, Box<dyn std::error::Error>>>;
 
     fn pipe<'a, 'b, T, P>(&'a self, processor: &'b P) -> PipedProcessor<'a, 'b, I, O, T, Self, P>
     where
@@ -24,7 +40,7 @@ pub trait ProcessorTrait<I, O> {
 pub struct NoopProcessor;
 
 impl<T> ProcessorTrait<T, ()> for NoopProcessor {
-    async fn process(&self, _: T) -> Result<(), Box<dyn Error>> {
+    async fn process(&self, _: T) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
 }
@@ -46,7 +62,7 @@ where
     P1: ProcessorTrait<I, T>,
     P2: ProcessorTrait<T, O>,
 {
-    async fn process(&self, input: I) -> Result<O, Box<dyn Error>> {
+    async fn process(&self, input: I) -> Result<O, Box<dyn std::error::Error>> {
         self.processor2
             .process(self.processor1.process(input).await?)
             .await

@@ -39,7 +39,7 @@ impl ColorSpace {
         matches!(self, Self::RGBA | Self::BGRA)
     }
 
-    const fn alpha_position(&self) -> Option<usize> {
+    pub const fn alpha_position(&self) -> Option<usize> {
         match self {
             ColorSpace::RGBA => Some(3),
             ColorSpace::BGRA => Some(3),

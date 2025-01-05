@@ -1,12 +1,13 @@
 [package]
-name = "two-kinect"
+name = "kinect-one"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 thiserror = "2.0.9"
 
-nusb = "=0.1.12"
+rusb = { git = "https://github.com/Aytixel/rusb.git", branch = "rusb-async" }
+rusb-async = { git = "https://github.com/Aytixel/rusb.git", branch = "rusb-async" }
 
 zune-jpeg = { version = "0.4.14", optional = true }
 mozjpeg = { version = "0.10.12", optional = true }

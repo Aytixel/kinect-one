@@ -3,6 +3,7 @@ use std::u32;
 use crate::{config::DEPTH_FRAME_SIZE, packet::DepthPacket, ReadUnaligned};
 
 /** Footer of a depth packet. */
+#[derive(Debug)]
 #[repr(C, packed)]
 struct DepthSubPacketFooter {
     magic0: u32,
@@ -19,27 +20,27 @@ impl ReadUnaligned for DepthSubPacketFooter {}
 pub struct DepthStreamParser {
     memory: Vec<u8>,
     worker: Vec<u8>,
-    processed_packets: i64,
+    processed_packets: Option<u32>,
     current_sequence: u32,
     current_subsequence: u32,
 }
 
 impl DepthStreamParser {
-    const MEMORY_CAPACITY: usize = DEPTH_FRAME_SIZE * 11 / 8;
-    const WORKER_CAPACITY: usize = Self::MEMORY_CAPACITY * 10;
+    const WORKER_CAPACITY: usize = DEPTH_FRAME_SIZE * 11 / 8;
+    const MEMORY_CAPACITY: usize = Self::WORKER_CAPACITY * 10;
 
     pub fn new() -> Self {
         Self {
-            memory: Vec::with_capacity(Self::MEMORY_CAPACITY),
+            memory: vec![0u8; Self::MEMORY_CAPACITY],
             worker: Vec::with_capacity(Self::WORKER_CAPACITY),
-            processed_packets: -1,
+            processed_packets: None,
             current_sequence: 0,
             current_subsequence: 0,
         }
     }
 
     pub fn parse(&mut self, mut buffer: Vec<u8>) -> Option<DepthPacket> {
-        if buffer.is_empty() {
+        if buffer.len() == 0 {
             self.worker.clear();
             return None;
         }
@@ -64,47 +65,53 @@ impl DepthStreamParser {
 
         self.worker.extend(buffer);
 
+        let Some(footer) = footer else {
+            return None;
+        };
+        if footer.length as usize != self.worker.len() {
+            self.worker.clear();
+            return None;
+        }
+
         let mut result = None;
 
-        if let Some(footer) = footer {
-            if footer.length as usize == self.worker.len() {
-                if self.current_sequence != footer.sequence {
-                    if self.current_subsequence == 0x3ff {
-                        result = Some(DepthPacket {
-                            sequence: self.current_sequence,
-                            timestamp: footer.timestamp,
-                            buffer: self.memory.drain(..).collect(),
-                        });
+        if self.current_sequence != footer.sequence {
+            if self.current_subsequence == 0x3ff {
+                result = Some(DepthPacket {
+                    sequence: self.current_sequence,
+                    timestamp: footer.timestamp,
+                    buffer: self.memory.clone(),
+                });
 
-                        self.processed_packets += 1;
-
-                        if self.processed_packets == 0 {
-                            self.processed_packets = self.current_sequence as i64;
-                        }
-
-                        let diff = self.current_sequence - self.processed_packets as u32;
-                        const INTERVAL: u32 = 30;
-
-                        if (self.current_sequence % INTERVAL == 0 && diff != 0) || diff >= INTERVAL
-                        {
-                            self.processed_packets = self.current_sequence as i64;
-                        }
-                    }
-
-                    self.current_sequence = footer.sequence;
-                    self.current_subsequence = 0;
+                if let Some(processed_packets) = self.processed_packets.as_mut() {
+                    *processed_packets += 1;
+                } else {
+                    self.processed_packets = Some(self.current_sequence);
                 }
 
-                self.current_subsequence |= 1 << footer.subsequence;
+                let processed_packets = self.processed_packets.as_mut().unwrap();
+                let diff = self.current_sequence - *processed_packets;
+                const INTERVAL: u32 = 30;
 
-                if (footer.subsequence * footer.length) as usize <= Self::MEMORY_CAPACITY {
-                    todo!();
-                    //self.memory.extend();
+                if (self.current_sequence % INTERVAL == 0 && diff != 0) || diff >= INTERVAL {
+                    *processed_packets = self.current_sequence;
                 }
             }
 
-            self.worker.clear();
+            self.current_sequence = footer.sequence;
+            self.current_subsequence = 0;
         }
+
+        self.current_subsequence |= 1 << footer.subsequence;
+
+        if (footer.subsequence * footer.length) as usize <= Self::MEMORY_CAPACITY {
+            let memory_start = (footer.subsequence * footer.length) as usize;
+
+            self.memory[memory_start..memory_start + footer.length as usize]
+                .copy_from_slice(&self.worker);
+        }
+
+        self.worker.clear();
 
         result
     }

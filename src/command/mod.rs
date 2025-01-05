@@ -1,35 +1,36 @@
 mod commands;
 mod response;
 
-use nusb::transfer::TransferError;
+use std::sync::Arc;
 
 pub use commands::*;
 pub use response::*;
+use rusb::{DeviceHandle, UsbContext};
 
-use crate::{Error, FromBuffer};
+use crate::{Error, FromBuffer, TIMEOUT};
 
 const COMPLETE_RESPONSE_LENGTH: usize = 16;
 const COMPLETE_RESPONSE_MAGIC: u32 = 0x0a6fe000;
 
 #[derive(Clone)]
-pub struct CommandTransaction {
+pub struct CommandTransaction<C: UsbContext> {
     in_endpoint: u8,
     out_endpoint: u8,
-    interface: nusb::Interface,
+    device_handle: Arc<DeviceHandle<C>>,
     sequence: u32,
 }
 
-impl CommandTransaction {
-    pub fn new(in_endpoint: u8, out_endpoint: u8, interface: nusb::Interface) -> Self {
+impl<C: UsbContext> CommandTransaction<C> {
+    pub fn new(in_endpoint: u8, out_endpoint: u8, device_handle: Arc<DeviceHandle<C>>) -> Self {
         Self {
             in_endpoint,
             out_endpoint,
-            interface,
+            device_handle,
             sequence: 0,
         }
     }
 
-    pub async fn execute<
+    pub fn execute<
         const COMMAND_ID: u32,
         const MAX_RESPONSE_LENGTH: u32,
         const MIN_RESPONSE_LENGTH: u32,
@@ -38,31 +39,27 @@ impl CommandTransaction {
         &mut self,
         command: Command<COMMAND_ID, MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH, NPARAM>,
     ) -> Result<Vec<u8>, Error> {
-        let sequence = self.send(&command).await?;
+        let sequence = self.send(&command)?;
         let mut result = Vec::new();
 
         if MAX_RESPONSE_LENGTH > 0 {
-            result = self
-                .receive(MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH)
-                .await?;
+            result = self.receive(MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH)?;
 
             self.check_complete_response(&result, sequence)
                 .map_err(|_| Error::PrematureComplete)?;
         }
 
-        let complete_result = self
-            .receive(
-                COMPLETE_RESPONSE_LENGTH as u32,
-                COMPLETE_RESPONSE_LENGTH as u32,
-            )
-            .await?;
+        let complete_result = self.receive(
+            COMPLETE_RESPONSE_LENGTH as u32,
+            COMPLETE_RESPONSE_LENGTH as u32,
+        )?;
 
         self.check_complete_response(&complete_result, sequence)?;
 
         Ok(result)
     }
 
-    async fn send<
+    fn send<
         const COMMAND_ID: u32,
         const MAX_RESPONSE_LENGTH: u32,
         const MIN_RESPONSE_LENGTH: u32,
@@ -77,53 +74,49 @@ impl CommandTransaction {
         } else {
             0
         };
-        let buffer = match self
-            .interface
-            .bulk_out(self.out_endpoint, command.as_bytes(sequence))
-            .await
-            .into_result()
-        {
-            Ok(buffer) => buffer,
+
+        let length = match self.device_handle.write_bulk(
+            self.out_endpoint,
+            &command.as_bytes(sequence),
+            TIMEOUT,
+        ) {
+            Ok(length) => length,
             Err(error) => {
-                if let TransferError::Stall = error {
-                    self.interface.clear_halt(self.out_endpoint)?;
+                if let rusb::Error::Pipe = error {
+                    self.device_handle.clear_halt(self.out_endpoint)?;
                 }
 
                 return Err(error.into());
             }
         };
 
-        if buffer.actual_length() != command.size() {
-            Err(Error::Send(buffer.actual_length(), command.size()))
+        if length != command.size() {
+            Err(Error::Send(length, command.size()))
         } else {
             Ok(sequence)
         }
     }
 
-    async fn receive(&self, max_length: u32, min_length: u32) -> Result<Vec<u8>, Error> {
-        let buffer = match self
-            .interface
-            .bulk_in(
-                self.in_endpoint,
-                nusb::transfer::RequestBuffer::new(max_length as usize),
-            )
-            .await
-            .into_result()
+    fn receive(&self, max_length: u32, min_length: u32) -> Result<Vec<u8>, Error> {
+        let mut buffer = vec![0u8; max_length as usize];
+        let length = match self
+            .device_handle
+            .read_bulk(self.in_endpoint, &mut buffer, TIMEOUT)
         {
-            Ok(buffer) => buffer,
+            Ok(length) => length,
             Err(error) => {
-                if let TransferError::Stall = error {
-                    self.interface.clear_halt(self.in_endpoint)?;
+                if let rusb::Error::Pipe = error {
+                    self.device_handle.clear_halt(self.in_endpoint)?;
                 }
 
                 return Err(error.into());
             }
         };
 
-        if buffer.len() < min_length as usize {
-            Err(Error::Receive(buffer.len(), min_length))
+        if length < min_length as usize {
+            Err(Error::Receive(length, min_length))
         } else {
-            Ok(buffer)
+            Ok(buffer.drain(..length).collect())
         }
     }
 

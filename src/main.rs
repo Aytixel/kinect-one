@@ -1,26 +1,41 @@
 use std::error::Error;
 
-use two_kinect::{
-    processor::rgb::{ColorSpace, MozRgbProcessor},
-    Device,
+use kinect_one::{
+    processor::{
+        rgb::{ColorSpace, MozRgbProcessor},
+        NoopProcessor, ProcessTrait,
+    },
+    DeviceEnumerator,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    let mut device = Device::open_default(true).await?;
+    let mut devices = DeviceEnumerator::new()?;
+    let mut device = devices.open_default(true)?;
 
-    device.start().await?;
+    println!("Starting");
+    device.start()?;
+    println!("Started");
 
-    println!(
-        "{:?}",
-        device
-            .process_rgb_frame(&MozRgbProcessor::new(ColorSpace::YCbCr, false, false))
-            .await?
-    );
+    loop {
+        if let Ok(Some(frame)) = device.poll_rgb_frame() {
+            println!("rgb: {:?}", frame);
+            println!(
+                "rgb: {:?}",
+                frame
+                    .process(&MozRgbProcessor::new(ColorSpace::YCbCr, false, false))
+                    .await
+            );
+        }
+        if let Ok(Some(frame)) = device.poll_depth_frame() {
+            println!("depth: {:?}", frame);
+            println!("depth: {:?}", frame.process(&NoopProcessor).await);
+        }
+    }
 
-    device.close().await?;
+    device.close()?;
 
     Ok(())
 }

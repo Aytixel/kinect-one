@@ -1,8 +1,10 @@
 use std::fmt::{self, Debug};
 
+use crate::processor::ProcessTrait;
+
 pub mod parser;
 
-///  Data packet with depth information.
+/// Data packet with depth information.
 #[derive(Clone)]
 pub struct DepthPacket {
     pub sequence: u32,
@@ -10,6 +12,8 @@ pub struct DepthPacket {
     /// Depth data.
     pub buffer: Vec<u8>,
 }
+
+impl ProcessTrait for DepthPacket {}
 
 impl Debug for DepthPacket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -32,6 +36,8 @@ pub struct RgbPacket {
     /// JPEG data.
     pub jpeg_buffer: Vec<u8>,
 }
+
+impl ProcessTrait for RgbPacket {}
 
 impl Debug for RgbPacket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

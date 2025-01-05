@@ -53,7 +53,7 @@ pub struct PacketParams {
     pub max_iso_packet_size: u16,
     pub rgb_transfer_size: usize,
     pub rgb_num_transfers: usize,
-    pub ir_packets_per_transfer: usize,
+    pub ir_packets_per_transfer: i32,
     pub ir_num_transfers: usize,
 }
 

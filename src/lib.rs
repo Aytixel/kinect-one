@@ -6,11 +6,13 @@ mod settings;
 pub mod data;
 pub mod processor;
 
-use std::{any::type_name, io, ptr::read_unaligned};
+use std::{any::type_name, io, ptr::read_unaligned, time::Duration};
 
 use thiserror::Error;
 
-pub use device::{Device, DeviceInfo};
+pub use device::{Device, DeviceEnumerator, DeviceInfo};
+
+const TIMEOUT: Duration = Duration::from_millis(1000);
 
 pub mod config {
     pub use crate::settings::{ColorSettingCommandType, LedId, LedMode, LedSettings};
@@ -48,9 +50,9 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]
-    Transfer(#[from] nusb::transfer::TransferError),
+    Usb(#[from] rusb::Error),
     #[error(transparent)]
-    ActiveConfiguration(#[from] nusb::descriptors::ActiveConfigurationError),
+    UsbTransfer(#[from] rusb_async::Error),
     #[error("Processing error: {0}")]
     Processing(Box<dyn std::error::Error>),
     #[error("No Kinect connected")]
@@ -71,6 +73,8 @@ pub enum Error {
     UnalignedRead(&'static str),
     #[error("{0} can happen only while running")]
     OnlyWhileRunning(&'static str),
+    #[error("Can't set ir state, device handle is borrowed multiple times")]
+    IrState,
 }
 
 trait ReadUnaligned: Sized {
