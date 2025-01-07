@@ -219,7 +219,7 @@ checksum = "b5aba8db14291edd000dfcc4d620c7ebfb122c613afb886ca8803fa4e128a20a"
 [[package]]
 name = "libusb1-sys"
 version = "0.7.0"
-source = "git+https://github.com/Aytixel/rusb.git?branch=rusb-async#ab75e71b0146e2c9ec1e0c19d8ebf21ae5978327"
+source = "git+https://github.com/Aytixel/rusb.git?branch=rusb-async#3696bc18ceb64f403563c886d78011d612a23986"
 dependencies = [
  "cc",
  "libc",
@@ -293,9 +293,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.15"
+version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "915a1e146535de9163f3987b8944ed8cf49a18bb0056bcebcdcece385cece4ff"
+checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
 
 [[package]]
 name = "pkg-config"
@@ -362,7 +362,7 @@ dependencies = [
 [[package]]
 name = "rusb"
 version = "0.9.4"
-source = "git+https://github.com/Aytixel/rusb.git?branch=rusb-async#ab75e71b0146e2c9ec1e0c19d8ebf21ae5978327"
+source = "git+https://github.com/Aytixel/rusb.git?branch=rusb-async#3696bc18ceb64f403563c886d78011d612a23986"
 dependencies = [
  "libc",
  "libusb1-sys",
@@ -371,7 +371,7 @@ dependencies = [
 [[package]]
 name = "rusb-async"
 version = "0.0.1-alpha"
-source = "git+https://github.com/Aytixel/rusb.git?branch=rusb-async#ab75e71b0146e2c9ec1e0c19d8ebf21ae5978327"
+source = "git+https://github.com/Aytixel/rusb.git?branch=rusb-async#3696bc18ceb64f403563c886d78011d612a23986"
 dependencies = [
  "libc",
  "rusb",
@@ -391,9 +391,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "syn"
-version = "2.0.94"
+version = "2.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "987bc0be1cdea8b10216bd06e2ca407d40b9543468fafd3ddfb02f36e77f71f3"
+checksum = "46f71c0377baf4ef1cc3e3402ded576dccc315800fbc62dfc7fe04b009773b4a"
 dependencies = [
  "proc-macro2",
  "quote",

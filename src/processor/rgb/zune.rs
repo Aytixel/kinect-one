@@ -7,7 +7,7 @@ use zune_jpeg::{
 
 use crate::processor::ProcessorTrait;
 
-use super::{ColorSpace, Frame, RgbPacket};
+use super::{ColorSpace, RgbFrame, RgbPacket};
 
 impl From<colorspace::ColorSpace> for ColorSpace {
     fn from(value: colorspace::ColorSpace) -> Self {
@@ -44,8 +44,8 @@ impl ZuneRgbProcessor {
     }
 }
 
-impl ProcessorTrait<RgbPacket, Frame> for ZuneRgbProcessor {
-    async fn process(&self, input: RgbPacket) -> Result<Frame, Box<dyn Error>> {
+impl ProcessorTrait<RgbPacket, RgbFrame> for ZuneRgbProcessor {
+    async fn process(&self, input: RgbPacket) -> Result<RgbFrame, Box<dyn Error>> {
         let mut decoder = JpegDecoder::new(input.jpeg_buffer);
 
         decoder.set_options(
@@ -58,7 +58,7 @@ impl ProcessorTrait<RgbPacket, Frame> for ZuneRgbProcessor {
         Ok(decoder.decode().map(|buffer| {
             let dimensions = decoder.dimensions().expect("Expected dimensions");
 
-            Frame {
+            RgbFrame {
                 color_space: decoder
                     .get_output_colorspace()
                     .expect("Expected colorspace")

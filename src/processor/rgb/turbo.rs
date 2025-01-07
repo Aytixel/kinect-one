@@ -4,7 +4,7 @@ use turbojpeg::{decompress, PixelFormat};
 
 use crate::processor::ProcessorTrait;
 
-use super::{ColorSpace, Frame, RgbPacket};
+use super::{ColorSpace, RgbFrame, RgbPacket};
 
 impl From<PixelFormat> for ColorSpace {
     fn from(value: PixelFormat) -> Self {
@@ -42,11 +42,11 @@ impl TurboRgbProcessor {
     }
 }
 
-impl ProcessorTrait<RgbPacket, Frame> for TurboRgbProcessor {
-    async fn process(&self, input: RgbPacket) -> Result<Frame, Box<dyn Error>> {
+impl ProcessorTrait<RgbPacket, RgbFrame> for TurboRgbProcessor {
+    async fn process(&self, input: RgbPacket) -> Result<RgbFrame, Box<dyn Error>> {
         let image = decompress(&input.jpeg_buffer, self.0)?;
 
-        Ok(Frame {
+        Ok(RgbFrame {
             color_space: image.format.into(),
             width: image.width,
             height: image.height,
@@ -57,5 +57,22 @@ impl ProcessorTrait<RgbPacket, Frame> for TurboRgbProcessor {
             gain: input.gain,
             gamma: input.gamma,
         })
+    }
+
+    fn pipe<'a, 'b, T, P>(
+        &'a self,
+        processor: &'b P,
+    ) -> crate::processor::PipedProcessor<'a, 'b, RgbPacket, RgbFrame, T, Self, P>
+    where
+        Self: Sized,
+        P: ProcessorTrait<RgbFrame, T>,
+    {
+        crate::processor::PipedProcessor {
+            _input: std::marker::PhantomData::default(),
+            _tmp: std::marker::PhantomData::default(),
+            _output: std::marker::PhantomData::default(),
+            processor1: self,
+            processor2: processor,
+        }
     }
 }
