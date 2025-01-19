@@ -2,8 +2,7 @@ use std::{fmt, ptr::read_unaligned};
 
 use crate::{
     command::{DepthParamsResponse, FirmwareVersionResponse, P0TablesResponse, RgbParamsResponse},
-    config::DEPTH_FRAME_SIZE,
-    Error, ReadUnaligned,
+    Error, ReadUnaligned, TABLE_SIZE,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -46,6 +45,61 @@ pub struct DepthProcessorParams {
 
     pub min_depth: f32,
     pub max_depth: f32,
+}
+
+impl Default for DepthProcessorParams {
+    fn default() -> Self {
+        Self {
+            ab_multiplier: 0.6666667,
+            ab_multiplier_per_frq: [1.322581, 1.0, 1.612903],
+            ab_output_multiplier: 16.0,
+
+            phase_in_rad: [0.0, 2.094395, 4.18879],
+
+            joint_bilateral_ab_threshold: 3.0,
+            joint_bilateral_max_edge: 2.5,
+            joint_bilateral_exp: 5.0,
+
+            gaussian_kernel: [
+                0.1069973, 0.1131098, 0.1069973, 0.1131098, 0.1195716, 0.1131098, 0.1069973,
+                0.1131098, 0.1069973,
+            ],
+
+            phase_offset: 0.0,
+            unambigious_dist: 2083.333,
+            individual_ab_threshold: 3.0,
+            ab_threshold: 10.0,
+            ab_confidence_slope: -0.5330578,
+            ab_confidence_offset: 0.7694894,
+            min_dealias_confidence: 0.3490659,
+            max_dealias_confidence: 0.6108653,
+
+            edge_ab_avg_min_value: 50.0,
+            edge_ab_std_dev_threshold: 0.05,
+            edge_close_delta_threshold: 50.0,
+            edge_far_delta_threshold: 30.0,
+            edge_max_delta_threshold: 100.0,
+            edge_avg_delta_threshold: 0.0,
+            max_edge_count: 5.0,
+
+            /*
+             * These are parameters for the method described in "Efficient Phase Unwrapping
+             * using Kernel Density Estimation", ECCV 2016, Felix Järemo Lawin, Per-Erik Forssen and
+             * Hannes Ovren, see http://www.cvl.isy.liu.se/research/datasets/kinect2-dataset/.
+             */
+            kde_sigma_sqr: 0.0239282226563, //the scale of the kernel in the KDE, h in eq (13).
+            unwrapping_likelihood_scale: 2.0, //scale parameter for the unwrapping likelihood, s_1^2 in eq (15).
+            phase_confidence_scale: 3.0, //scale parameter for the phase likelihood, s_2^2 in eq (23)
+            kde_threshold: 0.5, //threshold on the KDE output in eq (25), defines the inlier/outlier rate trade-off
+
+            kde_neigborhood_size: 5, //spatial support of the KDE, defines a filter size of (2*kde_neigborhood_size+1 x 2*kde_neigborhood_size+1)
+            num_hyps: 2, //number of phase unwrapping hypothesis considered by the KDE in each pixel. Implemented values are 2 and 3.
+            //a large kde_neigborhood_size improves performance but may remove fine structures and makes the processing slower.
+            //setting num_hyp to 3 improves the performance slightly but makes processing slower
+            min_depth: 500.0,
+            max_depth: 4500.0, //set to > 8000 for best performance when using the kde pipeline
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -220,7 +274,7 @@ impl TryFrom<&[u8]> for IrParams {
     }
 }
 
-pub type P0Table = [u16; DEPTH_FRAME_SIZE];
+pub type P0Table = [u16; TABLE_SIZE];
 
 #[derive(Debug, Clone)]
 pub struct P0Tables {
@@ -250,9 +304,9 @@ impl TryFrom<&[u8]> for P0Tables {
 impl Default for P0Tables {
     fn default() -> Self {
         Self {
-            p0_table0: Box::new([0u16; DEPTH_FRAME_SIZE]),
-            p0_table1: Box::new([0u16; DEPTH_FRAME_SIZE]),
-            p0_table2: Box::new([0u16; DEPTH_FRAME_SIZE]),
+            p0_table0: Box::new([0u16; TABLE_SIZE]),
+            p0_table1: Box::new([0u16; TABLE_SIZE]),
+            p0_table2: Box::new([0u16; TABLE_SIZE]),
         }
     }
 }

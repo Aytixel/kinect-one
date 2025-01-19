@@ -14,10 +14,14 @@ pub use device::{Device, DeviceEnumerator, DeviceInfo};
 
 const TIMEOUT: Duration = Duration::from_millis(1000);
 
+const TABLE_WIDTH: usize = 512;
+const TABLE_HEIGHT: usize = 424;
+const TABLE_SIZE: usize = TABLE_WIDTH * TABLE_HEIGHT;
+
+const LUT_SIZE: usize = 2048;
+
 pub mod config {
     pub use crate::settings::{ColorSettingCommandType, LedId, LedMode, LedSettings};
-
-    pub const DEPTH_FRAME_SIZE: usize = 512 * 424;
 
     /// Configuration of depth processing.
     #[derive(Debug, Clone, Copy)]

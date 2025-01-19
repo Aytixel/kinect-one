@@ -17,7 +17,10 @@ tokio = { version = "1.42.0", features = ["rt-multi-thread", "macros", "time"] }
 env_logger = "0.11.6"
 
 [features]
-default = ["zune_jpeg", "moz_jpeg", "turbo_jpeg"]
-zune_jpeg = ["dep:zune-jpeg"]
-moz_jpeg = ["dep:mozjpeg"]
-turbo_jpeg = ["dep:turbojpeg"]
+default = ["zune_rgb", "moz_rgb", "turbo_rgb", "cpu_depth"]
+
+zune_rgb = ["dep:zune-jpeg"]
+moz_rgb = ["dep:mozjpeg"]
+turbo_rgb = ["dep:turbojpeg"]
+
+cpu_depth = []

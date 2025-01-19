@@ -2,8 +2,9 @@ use std::error::Error;
 
 use kinect_one::{
     processor::{
+        depth::{CpuDepthProcessor, DepthProcessorTrait},
         rgb::{ColorSpace, MozRgbProcessor},
-        NoopProcessor, ProcessTrait,
+        ProcessTrait,
     },
     DeviceEnumerator,
 };
@@ -19,19 +20,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     device.start()?;
     println!("Started");
 
+    let rgb_processor = MozRgbProcessor::new(ColorSpace::YCbCr, false, false);
+    let mut depth_processor = CpuDepthProcessor::new();
+
+    depth_processor.set_p0_tables(device.get_p0_tables());
+    depth_processor.set_ir_params(device.get_ir_params());
+
     loop {
         if let Ok(Some(frame)) = device.poll_rgb_frame() {
             println!("rgb: {:?}", frame);
-            println!(
-                "rgb: {:?}",
-                frame
-                    .process(&MozRgbProcessor::new(ColorSpace::YCbCr, false, false))
-                    .await
-            );
+            println!("rgb: {:?}", frame.process(&rgb_processor).await);
         }
         if let Ok(Some(frame)) = device.poll_depth_frame() {
             println!("depth: {:?}", frame);
-            println!("depth: {:?}", frame.process(&NoopProcessor).await);
+            println!("depth: {:?}", frame.process(&depth_processor).await);
+            // frame.process(&depth_processor).await;
+            return Ok(());
         }
     }
 

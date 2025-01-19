@@ -55,23 +55,22 @@ impl ProcessorTrait<RgbPacket, RgbFrame> for ZuneRgbProcessor {
                 .jpeg_set_out_colorspace(self.0),
         );
 
-        Ok(decoder.decode().map(|buffer| {
-            let dimensions = decoder.dimensions().expect("Expected dimensions");
+        let buffer = decoder.decode()?;
+        let dimensions = decoder.dimensions().expect("Expected dimensions");
 
-            RgbFrame {
-                color_space: decoder
-                    .get_output_colorspace()
-                    .expect("Expected colorspace")
-                    .into(),
-                width: dimensions.0,
-                height: dimensions.1,
-                buffer,
-                sequence: input.sequence,
-                timestamp: input.timestamp,
-                exposure: input.exposure,
-                gain: input.gain,
-                gamma: input.gamma,
-            }
-        })?)
+        Ok(RgbFrame {
+            color_space: decoder
+                .get_output_colorspace()
+                .expect("Expected colorspace")
+                .into(),
+            width: dimensions.0,
+            height: dimensions.1,
+            buffer,
+            sequence: input.sequence,
+            timestamp: input.timestamp,
+            exposure: input.exposure,
+            gain: input.gain,
+            gamma: input.gamma,
+        })
     }
 }

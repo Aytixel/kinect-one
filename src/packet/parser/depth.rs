@@ -1,6 +1,6 @@
 use std::u32;
 
-use crate::{config::DEPTH_FRAME_SIZE, packet::DepthPacket, ReadUnaligned};
+use crate::{packet::DepthPacket, ReadUnaligned, TABLE_SIZE};
 
 /** Footer of a depth packet. */
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub struct DepthStreamParser {
 }
 
 impl DepthStreamParser {
-    const WORKER_CAPACITY: usize = DEPTH_FRAME_SIZE * 11 / 8;
+    const WORKER_CAPACITY: usize = TABLE_SIZE * 11 / 8;
     const MEMORY_CAPACITY: usize = Self::WORKER_CAPACITY * 10;
 
     pub fn new() -> Self {

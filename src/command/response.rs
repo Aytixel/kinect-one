@@ -1,4 +1,4 @@
-use crate::{config::DEPTH_FRAME_SIZE, ReadUnaligned};
+use crate::{ReadUnaligned, TABLE_SIZE};
 
 // probably some combination of color camera intrinsics + depth coefficient tables
 #[repr(C, packed)]
@@ -103,17 +103,17 @@ pub struct P0TablesResponse {
 
     _unknown6: u16,
     // row[0] == row[511] == 0x2c9a
-    pub p0_table0: [u16; DEPTH_FRAME_SIZE],
+    pub p0_table0: [u16; TABLE_SIZE],
     _unknown7: u16,
 
     _unknown8: u16,
     // row[0] == row[511] == 0x08ec
-    pub p0_table1: [u16; DEPTH_FRAME_SIZE],
+    pub p0_table1: [u16; TABLE_SIZE],
     _unknown9: u16,
 
     _unknown10: u16,
     // row[0] == row[511] == 0x42e8
-    pub p0_table2: [u16; DEPTH_FRAME_SIZE],
+    pub p0_table2: [u16; TABLE_SIZE],
     _unknown11: u16,
 }
 
