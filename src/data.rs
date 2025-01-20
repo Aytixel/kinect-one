@@ -20,7 +20,7 @@ pub struct DepthProcessorParams {
     pub gaussian_kernel: [f32; 9],
 
     pub phase_offset: f32,
-    pub unambigious_dist: f32,
+    pub unambiguous_dist: f32,
     pub individual_ab_threshold: f32,
     pub ab_threshold: f32,
     pub ab_confidence_slope: f32,
@@ -66,7 +66,7 @@ impl Default for DepthProcessorParams {
             ],
 
             phase_offset: 0.0,
-            unambigious_dist: 2083.333,
+            unambiguous_dist: 2083.333,
             individual_ab_threshold: 3.0,
             ab_threshold: 10.0,
             ab_confidence_slope: -0.5330578,

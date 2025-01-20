@@ -1,10 +1,14 @@
 #[cfg(feature = "cpu_depth")]
 mod cpu;
+#[cfg(feature = "opencl_depth")]
+mod opencl;
 
-use std::f32::EPSILON;
+use std::{error::Error, f32::EPSILON};
 
 #[cfg(feature = "cpu_depth")]
 pub use cpu::*;
+#[cfg(feature = "opencl_depth")]
+pub use opencl::*;
 
 use crate::{
     config::Config,
@@ -27,21 +31,25 @@ pub struct DepthFrame {
 pub type IrFrame = DepthFrame;
 
 pub trait DepthProcessorTrait {
-    fn set_config(&mut self, config: &Config);
+    fn set_config(&mut self, config: &Config) -> Result<(), Box<dyn Error>>;
 
-    fn set_p0_tables(&mut self, p0_tables: &P0Tables);
+    fn set_p0_tables(&mut self, p0_tables: &P0Tables) -> Result<(), Box<dyn Error>>;
 
-    fn set_x_z_tables(&mut self, x_table: &[f32; TABLE_SIZE], z_table: &[f32; TABLE_SIZE]);
+    fn set_x_z_tables(
+        &mut self,
+        x_table: &[f32; TABLE_SIZE],
+        z_table: &[f32; TABLE_SIZE],
+    ) -> Result<(), Box<dyn Error>>;
 
-    fn set_lookup_table(&mut self, lut: &[i16; LUT_SIZE]);
+    fn set_lookup_table(&mut self, lut: &[i16; LUT_SIZE]) -> Result<(), Box<dyn Error>>;
 
-    fn set_ir_params(&mut self, ir_params: &IrParams) {
+    fn set_ir_params(&mut self, ir_params: &IrParams) -> Result<(), Box<dyn Error>> {
         let mut x_table = [0.0; TABLE_SIZE];
         let mut z_table = [0.0; TABLE_SIZE];
         let mut lut = [0; LUT_SIZE];
 
         const SCALING_FACTOR: f32 = 8192.0;
-        const UNAMBIGIOUS_DIST: f32 = 6250.0 / 3.0;
+        const UNAMBIGUOUS_DIST: f32 = 6250.0 / 3.0;
 
         for i in 0..TABLE_SIZE {
             let xi = i % 512;
@@ -52,7 +60,7 @@ pub trait DepthProcessorTrait {
             let (xu, yu) = Self::undistort(ir_params, xd, yd);
 
             x_table[i] = SCALING_FACTOR * xu;
-            z_table[i] = UNAMBIGIOUS_DIST / (xu * xu + yu * yu + 1.0).sqrt();
+            z_table[i] = UNAMBIGUOUS_DIST / (xu * xu + yu * yu + 1.0).sqrt();
         }
 
         let mut y = 0;
@@ -69,6 +77,8 @@ pub trait DepthProcessorTrait {
 
         self.set_x_z_tables(&x_table, &z_table);
         self.set_lookup_table(&lut);
+
+        Ok(())
     }
 
     fn distort(ir_params: &IrParams, x: f32, y: f32) -> (f32, f32) {
