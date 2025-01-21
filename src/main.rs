@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let mut comp = comp.start_compress(Vec::new())?;
 
             let data = frame
-                .0
+                .1
                 .buffer
                 .iter()
                 .flat_map(|value| {

@@ -2,6 +2,8 @@
 mod cpu;
 #[cfg(feature = "opencl_depth")]
 mod opencl;
+#[cfg(feature = "opencl_kde_depth")]
+mod opencl_kde;
 
 use std::{error::Error, f32::EPSILON};
 
@@ -9,6 +11,8 @@ use std::{error::Error, f32::EPSILON};
 pub use cpu::*;
 #[cfg(feature = "opencl_depth")]
 pub use opencl::*;
+#[cfg(feature = "opencl_kde_depth")]
+pub use opencl_kde::*;
 
 use crate::{
     config::Config,
@@ -75,8 +79,8 @@ pub trait DepthProcessorTrait {
 
         lut[1024] = 32767;
 
-        self.set_x_z_tables(&x_table, &z_table);
-        self.set_lookup_table(&lut);
+        self.set_x_z_tables(&x_table, &z_table)?;
+        self.set_lookup_table(&lut)?;
 
         Ok(())
     }

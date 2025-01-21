@@ -75,7 +75,7 @@ pub struct CpuDepthProcessor {
 }
 
 impl CpuDepthProcessor {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, Box<dyn Error>> {
         let mut processor = Self {
             params: DepthProcessorParams::default(),
             x_table: Mat::<f32>::new(TABLE_WIDTH, TABLE_HEIGHT),
@@ -110,9 +110,9 @@ impl CpuDepthProcessor {
             flip_ptables: true,
         };
 
-        processor.set_config(&Config::default());
+        processor.set_config(&Config::default())?;
 
-        processor
+        Ok(processor)
     }
 
     fn decode_pixel_measurement(&self, data: &[u8], sub: usize, x: usize, y: usize) -> i16 {
