@@ -120,7 +120,7 @@ impl CpuDepthProcessor {
             return self.lut11_to_16[0];
         }
 
-        let mut r1zi = (x >> 2) + ((x & 0x3) << 7) * 11; // Range 11..5610
+        let mut r1zi = ((x >> 2) + ((x & 0x3) << 7)) * 11; // Range 11..5610
 
         // 298496 = 512 * 424 * 11 / 8 = number of bytes per sub image
         let ptr: &[u16] = unsafe { std::mem::transmute(&data[298496 * sub..]) };
