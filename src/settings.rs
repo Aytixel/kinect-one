@@ -169,3 +169,139 @@ impl LedSettings {
         self.interval
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+/// Parameters of depth processing.
+pub struct DepthProcessorParams {
+    pub ab_multiplier: f32,
+    pub ab_multiplier_per_frq: [f32; 3],
+    pub ab_output_multiplier: f32,
+
+    pub phase_in_rad: [f32; 3],
+
+    pub joint_bilateral_ab_threshold: f32,
+    pub joint_bilateral_max_edge: f32,
+    pub joint_bilateral_exp: f32,
+    pub gaussian_kernel: [f32; 9],
+
+    pub phase_offset: f32,
+    pub unambiguous_dist: f32,
+    pub individual_ab_threshold: f32,
+    pub ab_threshold: f32,
+    pub ab_confidence_slope: f32,
+    pub ab_confidence_offset: f32,
+    pub min_dealias_confidence: f32,
+    pub max_dealias_confidence: f32,
+
+    pub edge_ab_avg_min_value: f32,
+    pub edge_ab_std_dev_threshold: f32,
+    pub edge_close_delta_threshold: f32,
+    pub edge_far_delta_threshold: f32,
+    pub edge_max_delta_threshold: f32,
+    pub edge_avg_delta_threshold: f32,
+    pub max_edge_count: f32,
+
+    pub kde_sigma_sqr: f32,
+    pub unwrapping_likelihood_scale: f32,
+    pub phase_confidence_scale: f32,
+    pub kde_threshold: f32,
+    pub kde_neigborhood_size: usize,
+    pub num_hyps: usize,
+
+    pub min_depth: f32,
+    pub max_depth: f32,
+}
+
+impl Default for DepthProcessorParams {
+    fn default() -> Self {
+        Self {
+            ab_multiplier: 0.6666667,
+            ab_multiplier_per_frq: [1.322581, 1.0, 1.612903],
+            ab_output_multiplier: 16.0,
+
+            phase_in_rad: [0.0, 2.094395, 4.18879],
+
+            joint_bilateral_ab_threshold: 3.0,
+            joint_bilateral_max_edge: 2.5,
+            joint_bilateral_exp: 5.0,
+
+            gaussian_kernel: [
+                0.1069973, 0.1131098, 0.1069973, 0.1131098, 0.1195716, 0.1131098, 0.1069973,
+                0.1131098, 0.1069973,
+            ],
+
+            phase_offset: 0.0,
+            unambiguous_dist: 2083.333,
+            individual_ab_threshold: 3.0,
+            ab_threshold: 10.0,
+            ab_confidence_slope: -0.5330578,
+            ab_confidence_offset: 0.7694894,
+            min_dealias_confidence: 0.3490659,
+            max_dealias_confidence: 0.6108653,
+
+            edge_ab_avg_min_value: 50.0,
+            edge_ab_std_dev_threshold: 0.05,
+            edge_close_delta_threshold: 50.0,
+            edge_far_delta_threshold: 30.0,
+            edge_max_delta_threshold: 100.0,
+            edge_avg_delta_threshold: 0.0,
+            max_edge_count: 5.0,
+
+            /*
+             * These are parameters for the method described in "Efficient Phase Unwrapping
+             * using Kernel Density Estimation", ECCV 2016, Felix Järemo Lawin, Per-Erik Forssen and
+             * Hannes Ovren, see http://www.cvl.isy.liu.se/research/datasets/kinect2-dataset/.
+             */
+            kde_sigma_sqr: 0.0239282226563, //the scale of the kernel in the KDE, h in eq (13).
+            unwrapping_likelihood_scale: 2.0, //scale parameter for the unwrapping likelihood, s_1^2 in eq (15).
+            phase_confidence_scale: 3.0, //scale parameter for the phase likelihood, s_2^2 in eq (23)
+            kde_threshold: 0.5, //threshold on the KDE output in eq (25), defines the inlier/outlier rate trade-off
+
+            kde_neigborhood_size: 5, //spatial support of the KDE, defines a filter size of (2*kde_neigborhood_size+1 x 2*kde_neigborhood_size+1)
+            num_hyps: 2, //number of phase unwrapping hypothesis considered by the KDE in each pixel. Implemented values are 2 and 3.
+            //a large kde_neigborhood_size improves performance but may remove fine structures and makes the processing slower.
+            //setting num_hyp to 3 improves the performance slightly but makes processing slower
+            min_depth: 500.0,
+            max_depth: 4500.0, //set to > 8000 for best performance when using the kde pipeline
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PacketParams {
+    pub max_iso_packet_size: u16,
+    pub rgb_transfer_size: usize,
+    pub rgb_num_transfers: usize,
+    pub ir_packets_per_transfer: i32,
+    pub ir_num_transfers: usize,
+}
+
+impl Default for PacketParams {
+    fn default() -> Self {
+        if cfg!(target_os = "macos") {
+            Self {
+                max_iso_packet_size: 0,
+                rgb_transfer_size: 0x4000,
+                rgb_num_transfers: 20,
+                ir_packets_per_transfer: 128,
+                ir_num_transfers: 4,
+            }
+        } else if cfg!(target_os = "windows") {
+            Self {
+                max_iso_packet_size: 0,
+                rgb_transfer_size: 1048576,
+                rgb_num_transfers: 3,
+                ir_packets_per_transfer: 64,
+                ir_num_transfers: 8,
+            }
+        } else {
+            Self {
+                max_iso_packet_size: 0,
+                rgb_transfer_size: 0x4000,
+                rgb_num_transfers: 20,
+                ir_packets_per_transfer: 8,
+                ir_num_transfers: 60,
+            }
+        }
+    }
+}

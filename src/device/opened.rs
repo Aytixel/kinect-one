@@ -16,12 +16,12 @@ use crate::{
         set_stream_state_command, shutdown_command, stop_command, ColorSettingResponse,
         CommandTransaction,
     },
-    data::{ColorParams, FirwareVersion, IrParams, P0Tables, PacketParams},
+    data::{ColorParams, FirwareVersion, IrParams, P0Tables},
     packet::{
         parser::{DepthStreamParser, RgbStreamParser},
         DepthPacket, RgbPacket,
     },
-    settings::{ColorSettingCommandType, LedSettings},
+    settings::{ColorSettingCommandType, LedSettings, PacketParams},
     Error, FromBuffer, ReadUnaligned, TIMEOUT,
 };
 

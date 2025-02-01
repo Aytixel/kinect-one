@@ -1,9 +1,7 @@
 use std::{error::Error, f32::consts::PI};
 
 use crate::{
-    config::Config,
-    data::{DepthProcessorParams, P0Tables},
-    processor::ProcessorTrait,
+    config::Config, data::P0Tables, processor::ProcessorTrait, settings::DepthProcessorParams,
     LUT_SIZE, TABLE_HEIGHT, TABLE_SIZE, TABLE_WIDTH,
 };
 
