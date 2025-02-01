@@ -167,11 +167,13 @@ impl CpuDepthProcessor {
         ab_multiplier_per_frq: f32,
         x: usize,
         y: usize,
-        m: [i32; 3],
+        m0: i32,
+        m1: i32,
+        m2: i32,
         m_out: &mut [f32],
     ) {
         if self.z_table.get(x, y) > 0.0 {
-            if m[0] == 32767 || m[1] == 32767 || m[2] == 32767 {
+            if m0 == 32767 || m1 == 32767 || m2 == 32767 {
                 m_out[0] = 0.0;
                 m_out[1] = 0.0;
                 m_out[2] = 65535.0;
@@ -179,15 +181,14 @@ impl CpuDepthProcessor {
                 let offset = y * TABLE_WIDTH + x;
 
                 // formula given in Patent US 8,587,771 B2
-                let mut ir_image_a = trig_table[0][offset] * m[0] as f32
-                    + trig_table[1][offset] * m[1] as f32
-                    + trig_table[2][offset] * m[2] as f32;
-                let mut ir_image_b = trig_table[3][offset] * m[0] as f32
-                    + trig_table[4][offset] * m[1] as f32
-                    + trig_table[5][offset] * m[2] as f32;
-
-                ir_image_a *= ab_multiplier_per_frq;
-                ir_image_b *= ab_multiplier_per_frq;
+                let ir_image_a = (trig_table[0][offset] * m0 as f32
+                    + trig_table[1][offset] * m1 as f32
+                    + trig_table[2][offset] * m2 as f32)
+                    * ab_multiplier_per_frq;
+                let ir_image_b = (trig_table[3][offset] * m0 as f32
+                    + trig_table[4][offset] * m1 as f32
+                    + trig_table[5][offset] * m2 as f32)
+                    * ab_multiplier_per_frq;
 
                 let ir_amplitude = (ir_image_a * ir_image_a + ir_image_b * ir_image_b).sqrt()
                     * self.params.ab_multiplier;
@@ -203,31 +204,15 @@ impl CpuDepthProcessor {
         }
     }
 
-    fn process_pixel_stage1(&self, x: usize, y: usize, data: &[u8]) -> [f32; 9] {
-        let m0_raw = [
-            self.decode_pixel_measurement(data, 0, x, y) as i32,
-            self.decode_pixel_measurement(data, 1, x, y) as i32,
-            self.decode_pixel_measurement(data, 2, x, y) as i32,
-        ];
-        let m1_raw = [
-            self.decode_pixel_measurement(data, 3, x, y) as i32,
-            self.decode_pixel_measurement(data, 4, x, y) as i32,
-            self.decode_pixel_measurement(data, 5, x, y) as i32,
-        ];
-        let m2_raw = [
-            self.decode_pixel_measurement(data, 6, x, y) as i32,
-            self.decode_pixel_measurement(data, 7, x, y) as i32,
-            self.decode_pixel_measurement(data, 8, x, y) as i32,
-        ];
-
-        let mut m_out = [0.0; 9];
-
+    fn process_pixel_stage1(&self, x: usize, y: usize, data: &[u8], m_out: &mut [f32]) {
         self.process_measurement_triple(
             &self.trig_table0,
             self.params.ab_multiplier_per_frq[0],
             x,
             y,
-            m0_raw,
+            self.decode_pixel_measurement(data, 0, x, y) as i32,
+            self.decode_pixel_measurement(data, 1, x, y) as i32,
+            self.decode_pixel_measurement(data, 2, x, y) as i32,
             &mut m_out[0..3],
         );
         self.process_measurement_triple(
@@ -235,7 +220,9 @@ impl CpuDepthProcessor {
             self.params.ab_multiplier_per_frq[1],
             x,
             y,
-            m1_raw,
+            self.decode_pixel_measurement(data, 3, x, y) as i32,
+            self.decode_pixel_measurement(data, 4, x, y) as i32,
+            self.decode_pixel_measurement(data, 5, x, y) as i32,
             &mut m_out[3..6],
         );
         self.process_measurement_triple(
@@ -243,16 +230,21 @@ impl CpuDepthProcessor {
             self.params.ab_multiplier_per_frq[2],
             x,
             y,
-            m2_raw,
+            self.decode_pixel_measurement(data, 6, x, y) as i32,
+            self.decode_pixel_measurement(data, 7, x, y) as i32,
+            self.decode_pixel_measurement(data, 8, x, y) as i32,
             &mut m_out[6..9],
         );
-
-        m_out
     }
 
-    fn filter_pixel_stage1(&self, x: usize, y: usize, m: &Mat<[f32; 9]>) -> ([f32; 9], bool) {
+    fn filter_pixel_stage1(
+        &self,
+        x: usize,
+        y: usize,
+        m: &Mat<[f32; 9]>,
+        m_out: &mut [f32],
+    ) -> bool {
         let m_ptr = m.get(x, y);
-        let mut m_out = [0.0; 9];
         let mut bilateral_max_edge_test = true;
 
         if x < 1 || y < 1 || x > 510 || y > 422 {
@@ -273,9 +265,6 @@ impl CpuDepthProcessor {
                 m_normalized[0] = m_ptr[offset] * inv_norm;
                 m_normalized[1] = m_ptr[offset + 1] * inv_norm;
 
-                let mut weight_acc = 0.0;
-                let mut weighted_m_acc = [0.0; 2];
-
                 let mut threshold = (self.params.joint_bilateral_ab_threshold
                     * self.params.joint_bilateral_ab_threshold)
                     / (self.params.ab_multiplier * self.params.ab_multiplier);
@@ -286,6 +275,8 @@ impl CpuDepthProcessor {
                     joint_bilateral_exp = 0.0;
                 }
 
+                let mut weight_acc = 0.0;
+                let mut weighted_m_acc = [0.0; 2];
                 let mut dist_acc = 0.0;
                 let mut j = 0;
 
@@ -304,6 +295,7 @@ impl CpuDepthProcessor {
                         let other_norm2 = other_m_ptr[offset] * other_m_ptr[offset]
                             + other_m_ptr[offset + 1] * other_m_ptr[offset + 1];
                         let mut other_inv_norm = 1.0 / other_norm2.sqrt();
+
                         if other_inv_norm.is_nan() {
                             other_inv_norm = f32::INFINITY;
                         }
@@ -351,7 +343,7 @@ impl CpuDepthProcessor {
             }
         }
 
-        (m_out, bilateral_max_edge_test)
+        bilateral_max_edge_test
     }
 
     fn transform_measurements(&self, m: &mut [f32]) {
@@ -366,7 +358,6 @@ impl CpuDepthProcessor {
     }
 
     fn process_pixel_stage2(&self, x: usize, y: usize, m: &mut [f32; 9]) -> (f32, f32, f32) {
-        // Assuming transformMeasurements function is implemented elsewhere
         self.transform_measurements(&mut m[0..3]);
         self.transform_measurements(&mut m[3..6]);
         self.transform_measurements(&mut m[6..9]);
@@ -494,16 +485,16 @@ impl CpuDepthProcessor {
                         ir_sum_acc += other[2];
                         squared_ir_sum_acc += other[2] * other[2];
 
-                        if other[1] > 0.0 {
+                        if 0.0 < other[1] {
                             min_depth = min_depth.min(other[1]);
                             max_depth = max_depth.max(other[1]);
                         }
                     }
                 }
 
-                let edge_avg = (ir_sum_acc / 9.0).max(self.params.edge_ab_avg_min_value);
-                let tmp0 =
-                    ((squared_ir_sum_acc * 9.0 - ir_sum_acc * ir_sum_acc).sqrt()) / 9.0 / edge_avg;
+                let tmp0 = ((squared_ir_sum_acc * 9.0 - ir_sum_acc * ir_sum_acc).sqrt())
+                    / 9.0
+                    / (ir_sum_acc / 9.0).max(self.params.edge_ab_avg_min_value);
 
                 let abs_min_diff = (raw_depth - min_depth).abs();
                 let abs_max_diff = (raw_depth - max_depth).abs();
@@ -537,8 +528,8 @@ impl CpuDepthProcessor {
 
 impl DepthProcessorTrait for CpuDepthProcessor {
     fn set_config(&mut self, config: &Config) -> Result<(), Box<dyn Error>> {
-        self.params.min_depth = config.min_depth;
-        self.params.max_depth = config.max_depth;
+        self.params.min_depth = config.min_depth * 1000.0;
+        self.params.max_depth = config.max_depth * 1000.0;
         self.enable_bilateral_filter = config.enable_bilateral_filter;
         self.enable_edge_filter = config.enable_edge_aware_filter;
 
@@ -583,45 +574,33 @@ impl DepthProcessorTrait for CpuDepthProcessor {
 
 impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
     async fn process(&self, input: DepthPacket) -> Result<(IrFrame, DepthFrame), Box<dyn Error>> {
-        let mut ir_frame = IrFrame {
-            width: TABLE_WIDTH,
-            height: TABLE_HEIGHT,
-            buffer: Box::new([0.0; TABLE_SIZE]),
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-        };
-        let mut depth_frame = DepthFrame {
-            width: TABLE_WIDTH,
-            height: TABLE_HEIGHT,
-            buffer: Box::new([0.0; TABLE_SIZE]),
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-        };
-
         let mut m: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(TABLE_WIDTH, TABLE_HEIGHT);
         let mut m_filtered: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(TABLE_WIDTH, TABLE_HEIGHT);
         let mut m_max_edge_test: Mat<bool> = Mat::<bool>::new(TABLE_WIDTH, TABLE_HEIGHT);
-
-        for y in 0..TABLE_HEIGHT {
-            for x in 0..TABLE_WIDTH {
-                m.get_mut(x, y)
-                    .copy_from_slice(&self.process_pixel_stage1(x, y, &input.buffer));
-            }
-        }
 
         // bilateral filtering
         let mut m_ptr = if self.enable_bilateral_filter {
             for y in 0..TABLE_HEIGHT {
                 for x in 0..TABLE_WIDTH {
-                    let (m_filtered_ptr, max_edge_test_val) = self.filter_pixel_stage1(x, y, &m);
+                    self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
+                }
+            }
 
-                    m_filtered.get_mut(x, y).copy_from_slice(&m_filtered_ptr);
-                    *m_max_edge_test.get_mut(x, y) = max_edge_test_val;
+            for y in 0..TABLE_HEIGHT {
+                for x in 0..TABLE_WIDTH {
+                    *m_max_edge_test.get_mut(x, y) =
+                        self.filter_pixel_stage1(x, y, &m, m_filtered.get_mut(x, y));
                 }
             }
 
             m_filtered
         } else {
+            for y in 0..TABLE_HEIGHT {
+                for x in 0..TABLE_WIDTH {
+                    self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
+                }
+            }
+
             m
         };
 
@@ -663,7 +642,7 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
         } else {
             for y in 0..TABLE_HEIGHT {
                 for x in 0..TABLE_WIDTH {
-                    let (out_ir_value, _, out_depth_value) =
+                    let (out_ir_value, out_depth_value, _) =
                         self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
 
                     *out_ir.get_mut(x, 423 - y) = out_ir_value;
@@ -672,9 +651,21 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
             }
         }
 
-        ir_frame.buffer.copy_from_slice(&out_ir.buffer);
-        depth_frame.buffer.copy_from_slice(&out_depth.buffer);
-
-        Ok((ir_frame, depth_frame))
+        Ok((
+            IrFrame {
+                width: TABLE_WIDTH,
+                height: TABLE_HEIGHT,
+                buffer: out_ir.buffer,
+                sequence: input.sequence,
+                timestamp: input.timestamp,
+            },
+            DepthFrame {
+                width: TABLE_WIDTH,
+                height: TABLE_HEIGHT,
+                buffer: out_depth.buffer,
+                sequence: input.sequence,
+                timestamp: input.timestamp,
+            },
+        ))
     }
 }

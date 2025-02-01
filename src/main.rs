@@ -2,14 +2,13 @@ use std::{error::Error, fs::write};
 
 use kinect_one::{
     processor::{
-        depth::{CpuDepthProcessor, DepthProcessorTrait, OpenCLDepthProcessor},
+        depth::{CpuDepthProcessor, DepthProcessorTrait},
         rgb::{ColorSpace, MozRgbProcessor},
         ProcessTrait,
     },
     DeviceEnumerator,
 };
 use mozjpeg::Compress;
-use ocl::{Device, Platform};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -23,7 +22,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Started");
 
     let rgb_processor = MozRgbProcessor::new(ColorSpace::YCbCr, false, false);
-    let mut depth_processor = OpenCLDepthProcessor::new(Device::first(Platform::first()?)?)?;
+    let mut depth_processor = CpuDepthProcessor::new()?;
 
     depth_processor.set_p0_tables(device.get_p0_tables())?;
     depth_processor.set_ir_params(device.get_ir_params())?;

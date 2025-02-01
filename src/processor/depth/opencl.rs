@@ -347,14 +347,14 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for OpenCLDepthProcessor
         let mut ir_frame = IrFrame {
             width: TABLE_WIDTH,
             height: TABLE_HEIGHT,
-            buffer: Box::new([0.0; TABLE_SIZE]),
+            buffer: vec![0.0; TABLE_SIZE],
             sequence: input.sequence,
             timestamp: input.timestamp,
         };
         let mut depth_frame = DepthFrame {
             width: TABLE_WIDTH,
             height: TABLE_HEIGHT,
-            buffer: Box::new([0.0; TABLE_SIZE]),
+            buffer: vec![0.0; TABLE_SIZE],
             sequence: input.sequence,
             timestamp: input.timestamp,
         };

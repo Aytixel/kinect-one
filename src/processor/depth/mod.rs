@@ -26,7 +26,7 @@ pub use crate::packet::DepthPacket;
 pub struct DepthFrame {
     pub width: usize,
     pub height: usize,
-    pub buffer: Box<[f32; TABLE_SIZE]>,
+    pub buffer: Vec<f32>,
 
     pub sequence: u32,
     pub timestamp: u32,
