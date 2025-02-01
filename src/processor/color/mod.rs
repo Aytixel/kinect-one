@@ -14,7 +14,7 @@ pub use turbo::*;
 #[cfg(feature = "zune_rgb")]
 pub use zune::*;
 
-pub use crate::packet::RgbPacket;
+pub use crate::packet::ColorPacket;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorSpace {
@@ -49,7 +49,7 @@ impl ColorSpace {
 }
 
 #[derive(Clone)]
-pub struct RgbFrame {
+pub struct ColorFrame {
     pub color_space: ColorSpace,
     pub width: usize,
     pub height: usize,
@@ -62,7 +62,7 @@ pub struct RgbFrame {
     pub gamma: f32,
 }
 
-impl Debug for RgbFrame {
+impl Debug for ColorFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Frame")
             .field("color_space", &self.color_space)

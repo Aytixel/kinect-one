@@ -1,8 +1,10 @@
 use std::{fmt, ptr::read_unaligned};
 
 use crate::{
-    command::{DepthParamsResponse, FirmwareVersionResponse, P0TablesResponse, RgbParamsResponse},
-    Error, ReadUnaligned, TABLE_SIZE,
+    command::{
+        ColorParamsResponse, DepthParamsResponse, FirmwareVersionResponse, P0TablesResponse,
+    },
+    Error, ReadUnaligned, DEPTH_SIZE,
 };
 
 /// Color camera calibration parameters.
@@ -60,7 +62,7 @@ impl TryFrom<&[u8]> for ColorParams {
     type Error = Error;
 
     fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
-        let raw = RgbParamsResponse::read_unaligned(buffer)?;
+        let raw = ColorParamsResponse::read_unaligned(buffer)?;
 
         Ok(Self {
             fx: raw.color_f,
@@ -138,7 +140,7 @@ impl TryFrom<&[u8]> for IrParams {
     }
 }
 
-pub type P0Table = [u16; TABLE_SIZE];
+pub type P0Table = [u16; DEPTH_SIZE];
 
 #[derive(Debug, Clone)]
 pub struct P0Tables {
@@ -168,9 +170,9 @@ impl TryFrom<&[u8]> for P0Tables {
 impl Default for P0Tables {
     fn default() -> Self {
         Self {
-            p0_table0: Box::new([0u16; TABLE_SIZE]),
-            p0_table1: Box::new([0u16; TABLE_SIZE]),
-            p0_table2: Box::new([0u16; TABLE_SIZE]),
+            p0_table0: Box::new([0u16; DEPTH_SIZE]),
+            p0_table1: Box::new([0u16; DEPTH_SIZE]),
+            p0_table2: Box::new([0u16; DEPTH_SIZE]),
         }
     }
 }

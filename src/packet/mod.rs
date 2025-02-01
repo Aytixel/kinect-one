@@ -27,7 +27,7 @@ impl Debug for DepthPacket {
 
 /// Packet with JPEG data.
 #[derive(Clone)]
-pub struct RgbPacket {
+pub struct ColorPacket {
     pub sequence: u32,
     pub timestamp: u32,
     pub exposure: f32,
@@ -37,11 +37,11 @@ pub struct RgbPacket {
     pub jpeg_buffer: Vec<u8>,
 }
 
-impl ProcessTrait for RgbPacket {}
+impl ProcessTrait for ColorPacket {}
 
-impl Debug for RgbPacket {
+impl Debug for ColorPacket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RgbPacket")
+        f.debug_struct("ColorPacket")
             .field("sequence", &self.sequence)
             .field("timestamp", &self.timestamp)
             .field("exposure", &self.exposure)

@@ -11,15 +11,15 @@ use rusb_async::TransferPool;
 use crate::{
     command::{
         color_setting_command, init_streams_command, led_setting_command,
-        read_depth_params_command, read_firware_versions_command, read_p0_tables_command,
-        read_rgb_params_command, read_serial_number_command, read_status_command, set_mode_command,
+        read_color_params_command, read_depth_params_command, read_firware_versions_command,
+        read_p0_tables_command, read_serial_number_command, read_status_command, set_mode_command,
         set_stream_state_command, shutdown_command, stop_command, ColorSettingResponse,
         CommandTransaction,
     },
     data::{ColorParams, FirwareVersion, IrParams, P0Tables},
     packet::{
-        parser::{DepthStreamParser, RgbStreamParser},
-        DepthPacket, RgbPacket,
+        parser::{ColorStreamParser, DepthStreamParser},
+        ColorPacket, DepthPacket,
     },
     settings::{ColorSettingCommandType, LedSettings, PacketParams},
     Error, FromBuffer, ReadUnaligned, TIMEOUT,
@@ -30,7 +30,7 @@ use super::{Closed, Device, DeviceId, DeviceInfo};
 #[derive(Clone, Copy)]
 #[repr(u8)]
 enum InterfaceId {
-    ControlAndRgb = 0,
+    ControlAndColor = 0,
     Ir = 1,
 }
 
@@ -53,7 +53,7 @@ impl Feature {
 
 const CONTROL_IN_ENDPOINT: u8 = 0x81;
 const CONTROL_OUT_ENDPOINT: u8 = 0x02;
-const RGB_IN_ENDPOINT: u8 = 0x83;
+const COLOR_IN_ENDPOINT: u8 = 0x83;
 const IR_IN_ENDPOINT: u8 = 0x84;
 
 const SET_ISOCH_DELAY: u8 = 0x31;
@@ -69,8 +69,8 @@ pub struct Opened<C: UsbContext> {
     ir_params: IrParams,
     p0_tables: P0Tables,
     packet_params: PacketParams,
-    rgb_transfer_pool: TransferPool<C>,
-    rgb_stream_parser: RgbStreamParser,
+    color_transfer_pool: TransferPool<C>,
+    color_stream_parser: ColorStreamParser,
     depth_transfer_pool: TransferPool<C>,
     depth_stream_parser: DepthStreamParser,
     running: bool,
@@ -84,7 +84,7 @@ impl<C: UsbContext> Opened<C> {
             device_handle.set_active_configuration(1)?;
         }
 
-        device_handle.claim_interface(InterfaceId::ControlAndRgb as u8)?;
+        device_handle.claim_interface(InterfaceId::ControlAndColor as u8)?;
         device_handle.claim_interface(InterfaceId::Ir as u8)?;
 
         // set isochronous delay
@@ -108,8 +108,8 @@ impl<C: UsbContext> Opened<C> {
             ir_params: Default::default(),
             p0_tables: Default::default(),
             packet_params: Default::default(),
-            rgb_transfer_pool: TransferPool::new(device_handle.clone())?,
-            rgb_stream_parser: RgbStreamParser::new(),
+            color_transfer_pool: TransferPool::new(device_handle.clone())?,
+            color_stream_parser: ColorStreamParser::new(),
             depth_transfer_pool: TransferPool::new(device_handle.clone())?,
             depth_stream_parser: DepthStreamParser::new(),
             running: false,
@@ -240,7 +240,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         self.inner.running
     }
 
-    /// Start data processing with both RGB and depth streams.
+    /// Start data processing with both color and depth streams.
     /// All above configuration must only be called before start() or after stop().
     pub fn start(&mut self) -> Result<(), Error> {
         if self.inner.running {
@@ -274,7 +274,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         self.inner.color_params = ColorParams::try_from(
             self.inner
                 .command_transaction
-                .execute(read_rgb_params_command())?
+                .execute(read_color_params_command())?
                 .as_slice(),
         )?;
         self.inner.p0_tables = P0Tables::try_from(
@@ -316,25 +316,25 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(())
     }
 
-    pub fn poll_rgb_frame(&mut self) -> Result<Option<RgbPacket>, Error> {
+    pub fn poll_color_frame(&mut self) -> Result<Option<ColorPacket>, Error> {
         if !self.inner.running {
-            return Err(Error::OnlyWhileRunning("Reading rgb frame"));
+            return Err(Error::OnlyWhileRunning("Reading color frame"));
         }
 
-        for _ in 0..self.inner.packet_params.rgb_num_transfers {
-            self.inner.rgb_transfer_pool.submit_bulk(
-                RGB_IN_ENDPOINT,
-                Vec::with_capacity(self.inner.packet_params.rgb_transfer_size),
+        for _ in 0..self.inner.packet_params.color_num_transfers {
+            self.inner.color_transfer_pool.submit_bulk(
+                COLOR_IN_ENDPOINT,
+                Vec::with_capacity(self.inner.packet_params.color_transfer_size),
             )?;
         }
 
         let mut result = None;
 
-        while self.inner.rgb_transfer_pool.pending() {
+        while self.inner.color_transfer_pool.pending() {
             if let Some(packet) = self
                 .inner
-                .rgb_stream_parser
-                .parse(self.inner.rgb_transfer_pool.poll(TIMEOUT)?)
+                .color_stream_parser
+                .parse(self.inner.color_transfer_pool.poll(TIMEOUT)?)
             {
                 result = Some(packet);
             }
@@ -417,7 +417,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         &self.inner.p0_tables
     }
 
-    /// Sets the RGB camera to fully automatic exposure setting.
+    /// Sets the color camera to fully automatic exposure setting.
     /// Exposure compensation: negative value gives an underexposed image, positive gives an overexposed image.
     ///
     /// # Arguments
@@ -438,7 +438,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(())
     }
 
-    /// Sets a flicker-free exposure time of the RGB camera in pseudo-ms, value in range [0.0, 640] ms.
+    /// Sets a flicker-free exposure time of the color camera in pseudo-ms, value in range [0.0, 640] ms.
     /// The actual frame integration time is set to a multiple of fluorescent light period
     /// that is shorter than the requested time e.g. requesting 16 ms will set 10 ms
     /// in Australia (100Hz light flicker), 8.33 ms in USA (120Hz light flicker).
@@ -476,7 +476,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(())
     }
 
-    /// Manually set true exposure time and analog gain of the RGB camera.
+    /// Manually set true exposure time and analog gain of the color camera.
     ///
     /// # Arguments
     ///
@@ -507,7 +507,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(())
     }
 
-    /// Set an individual setting value of the RGB camera.
+    /// Set an individual setting value of the color camera.
     pub fn set_color_setting(
         &mut self,
         command: ColorSettingCommandType,
@@ -520,7 +520,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(())
     }
 
-    /// get an individual setting value of the RGB camera.
+    /// get an individual setting value of the color camera.
     pub fn get_color_setting(&mut self, command: ColorSettingCommandType) -> Result<u32, Error> {
         let bytes = self
             .inner

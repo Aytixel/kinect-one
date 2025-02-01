@@ -1,5 +1,5 @@
+mod color;
 mod depth;
-mod rgb;
 
+pub use color::*;
 pub use depth::*;
-pub use rgb::*;

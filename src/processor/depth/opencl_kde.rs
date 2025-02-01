@@ -8,7 +8,7 @@ use ocl::{
 
 use crate::{
     config::Config, data::P0Tables, processor::ProcessorTrait, settings::DepthProcessorParams,
-    LUT_SIZE, TABLE_HEIGHT, TABLE_SIZE, TABLE_WIDTH,
+    DEPTH_HEIGHT, DEPTH_SIZE, LUT_SIZE, DEPTH_WIDTH,
 };
 
 use super::{DepthFrame, DepthPacket, DepthProcessorTrait, IrFrame};
@@ -167,7 +167,7 @@ impl OpenCLKdeDepthProcessor {
         );
 
         let pro_que = ProQue::builder()
-            .dims(TABLE_SIZE)
+            .dims(DEPTH_SIZE)
             .prog_bldr(program_builder)
             .device(device)
             .build()?;
@@ -181,102 +181,102 @@ impl OpenCLKdeDepthProcessor {
             p0_table: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_ONLY)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             x_table: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_ONLY)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             z_table: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_ONLY)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             packet: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_ONLY)
-                .len(((TABLE_SIZE * 11) / 16) * 10 * size_of::<u16>())
+                .len(((DEPTH_SIZE * 11) / 16) * 10 * size_of::<u16>())
                 .build()?,
             a: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             b: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             n: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             ir: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             a_filtered: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             b_filtered: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             edge_test: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             depth: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             conf_1: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             conf_2: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             conf_3: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             phase_1: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             phase_2: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             phase_3: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             gaussian_kernel: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
             phase_conf: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_WRITE)
-                .len(TABLE_SIZE)
+                .len(DEPTH_SIZE)
                 .build()?,
         };
         let kernels = Kernels {
@@ -379,14 +379,14 @@ impl DepthProcessorTrait for OpenCLKdeDepthProcessor {
     }
 
     fn set_p0_tables(&mut self, p0_tables: &P0Tables) -> Result<(), Box<dyn Error>> {
-        let mut p0_table = Vec::with_capacity(TABLE_SIZE);
+        let mut p0_table = Vec::with_capacity(DEPTH_SIZE);
 
-        for r in 0..TABLE_HEIGHT {
-            for c in 0..TABLE_WIDTH {
+        for r in 0..DEPTH_HEIGHT {
+            for c in 0..DEPTH_WIDTH {
                 p0_table.push(Float3::new(
-                    -(p0_tables.p0_table0[r * TABLE_WIDTH + c] as f32) * 0.000031 * PI,
-                    -(p0_tables.p0_table1[r * TABLE_WIDTH + c] as f32) * 0.000031 * PI,
-                    -(p0_tables.p0_table2[r * TABLE_WIDTH + c] as f32) * 0.000031 * PI,
+                    -(p0_tables.p0_table0[r * DEPTH_WIDTH + c] as f32) * 0.000031 * PI,
+                    -(p0_tables.p0_table1[r * DEPTH_WIDTH + c] as f32) * 0.000031 * PI,
+                    -(p0_tables.p0_table2[r * DEPTH_WIDTH + c] as f32) * 0.000031 * PI,
                 ));
             }
         }
@@ -398,8 +398,8 @@ impl DepthProcessorTrait for OpenCLKdeDepthProcessor {
 
     fn set_x_z_tables(
         &mut self,
-        x_table: &[f32; TABLE_SIZE],
-        z_table: &[f32; TABLE_SIZE],
+        x_table: &[f32; DEPTH_SIZE],
+        z_table: &[f32; DEPTH_SIZE],
     ) -> Result<(), Box<dyn Error>> {
         self.buffers.x_table.write(x_table.as_slice()).enq()?;
         self.buffers.z_table.write(z_table.as_slice()).enq()?;
@@ -439,16 +439,16 @@ impl DepthProcessorTrait for OpenCLKdeDepthProcessor {
 impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for OpenCLKdeDepthProcessor {
     async fn process(&self, input: DepthPacket) -> Result<(IrFrame, DepthFrame), Box<dyn Error>> {
         let mut ir_frame = IrFrame {
-            width: TABLE_WIDTH,
-            height: TABLE_HEIGHT,
-            buffer: vec![0.0; TABLE_SIZE],
+            width: DEPTH_WIDTH,
+            height: DEPTH_HEIGHT,
+            buffer: vec![0.0; DEPTH_SIZE],
             sequence: input.sequence,
             timestamp: input.timestamp,
         };
         let mut depth_frame = DepthFrame {
-            width: TABLE_WIDTH,
-            height: TABLE_HEIGHT,
-            buffer: vec![0.0; TABLE_SIZE],
+            width: DEPTH_WIDTH,
+            height: DEPTH_HEIGHT,
+            buffer: vec![0.0; DEPTH_SIZE],
             sequence: input.sequence,
             timestamp: input.timestamp,
         };

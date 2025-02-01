@@ -5,9 +5,9 @@ use zune_jpeg::{
     JpegDecoder,
 };
 
-use crate::processor::ProcessorTrait;
+use crate::{processor::ProcessorTrait, COLOR_HEIGHT, COLOR_WIDTH};
 
-use super::{ColorSpace, RgbFrame, RgbPacket};
+use super::{ColorFrame, ColorPacket, ColorSpace};
 
 impl From<colorspace::ColorSpace> for ColorSpace {
     fn from(value: colorspace::ColorSpace) -> Self {
@@ -35,30 +35,30 @@ impl Into<colorspace::ColorSpace> for ColorSpace {
     }
 }
 
-/// ZuneJpeg rgb processor
-pub struct ZuneRgbProcessor(colorspace::ColorSpace);
+/// ZuneJpeg color processor
+pub struct ZuneColorProcessor(colorspace::ColorSpace);
 
-impl ZuneRgbProcessor {
+impl ZuneColorProcessor {
     pub fn new(colorspace: ColorSpace) -> Self {
         Self(colorspace.into())
     }
 }
 
-impl ProcessorTrait<RgbPacket, RgbFrame> for ZuneRgbProcessor {
-    async fn process(&self, input: RgbPacket) -> Result<RgbFrame, Box<dyn Error>> {
+impl ProcessorTrait<ColorPacket, ColorFrame> for ZuneColorProcessor {
+    async fn process(&self, input: ColorPacket) -> Result<ColorFrame, Box<dyn Error>> {
         let mut decoder = JpegDecoder::new(input.jpeg_buffer);
 
         decoder.set_options(
             DecoderOptions::new_fast()
-                .set_max_height(1080)
-                .set_max_width(1920)
+                .set_max_height(COLOR_HEIGHT)
+                .set_max_width(COLOR_WIDTH)
                 .jpeg_set_out_colorspace(self.0),
         );
 
         let buffer = decoder.decode()?;
         let dimensions = decoder.dimensions().expect("Expected dimensions");
 
-        Ok(RgbFrame {
+        Ok(ColorFrame {
             color_space: decoder
                 .get_output_colorspace()
                 .expect("Expected colorspace")

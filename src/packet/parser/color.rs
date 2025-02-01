@@ -1,21 +1,21 @@
-use crate::{packet::RgbPacket, ReadUnaligned};
+use crate::{packet::ColorPacket, ReadUnaligned};
 
 #[derive(Debug)]
 #[repr(C, packed)]
-struct RawRgbPacketHeader {
+struct RawColorPacketHeader {
     sequence: u32,
     // is 'BBBB' equal 0x42424242
     magic_header: u32,
 }
 
-impl ReadUnaligned for RawRgbPacketHeader {}
+impl ReadUnaligned for RawColorPacketHeader {}
 
 // starting from JPEG EOI: 0xff 0xd9
 // char pad_0xa5[]; //0-3 bytes alignment of 0xa5
 // char filler[filler_length] = "ZZZZ...";
 #[derive(Debug)]
 #[repr(C, packed)]
-struct RawRgbPacketFooter {
+struct RawColorPacketFooter {
     // is '9999' equal 0x39393939
     magic_header: u32,
     sequence: u32,
@@ -38,13 +38,13 @@ struct RawRgbPacketFooter {
     _unknown2: [u32; 3],
 }
 
-impl ReadUnaligned for RawRgbPacketFooter {}
+impl ReadUnaligned for RawColorPacketFooter {}
 
-pub struct RgbStreamParser {
+pub struct ColorStreamParser {
     memory: Vec<u8>,
 }
 
-impl RgbStreamParser {
+impl ColorStreamParser {
     const CAPACITY: usize = 2 * 1024 * 1024;
 
     pub fn new() -> Self {
@@ -53,7 +53,7 @@ impl RgbStreamParser {
         }
     }
 
-    pub fn parse(&mut self, buffer: Vec<u8>) -> Option<RgbPacket> {
+    pub fn parse(&mut self, buffer: Vec<u8>) -> Option<ColorPacket> {
         if self.memory.len() + buffer.len() > Self::CAPACITY {
             self.memory.clear();
             return None;
@@ -61,12 +61,12 @@ impl RgbStreamParser {
 
         self.memory.extend(buffer);
 
-        if self.memory.len() <= (RawRgbPacketHeader::size() + RawRgbPacketFooter::size()) {
+        if self.memory.len() <= (RawColorPacketHeader::size() + RawColorPacketFooter::size()) {
             return None;
         }
 
-        let footer = RawRgbPacketFooter::read_unaligned(
-            &self.memory[self.memory.len() - RawRgbPacketFooter::size()..],
+        let footer = RawColorPacketFooter::read_unaligned(
+            &self.memory[self.memory.len() - RawColorPacketFooter::size()..],
         )
         .ok()?;
 
@@ -74,11 +74,11 @@ impl RgbStreamParser {
             return None;
         }
 
-        let header = RawRgbPacketHeader::read_unaligned(&self.memory).ok()?;
+        let header = RawColorPacketHeader::read_unaligned(&self.memory).ok()?;
 
         if self.memory.len() != footer.packet_size as usize
             || header.sequence != footer.sequence
-            || (self.memory.len() - RawRgbPacketHeader::size() - RawRgbPacketFooter::size())
+            || (self.memory.len() - RawColorPacketHeader::size() - RawColorPacketFooter::size())
                 < footer.filler_length as usize
         {
             self.memory.clear();
@@ -87,10 +87,10 @@ impl RgbStreamParser {
 
         let mut jpeg_length = 0;
         let length_no_filler = self.memory.len()
-            - RawRgbPacketHeader::size()
-            - RawRgbPacketFooter::size()
+            - RawColorPacketHeader::size()
+            - RawColorPacketFooter::size()
             - footer.filler_length as usize;
-        let jpeg_buffer = &self.memory[RawRgbPacketHeader::size()..];
+        let jpeg_buffer = &self.memory[RawColorPacketHeader::size()..];
 
         for index in 0..4 {
             if length_no_filler < index + 2 {
@@ -109,7 +109,7 @@ impl RgbStreamParser {
             return None;
         }
 
-        let packet = RgbPacket {
+        let packet = ColorPacket {
             sequence: header.sequence,
             timestamp: footer.timestamp,
             exposure: footer.exposure,

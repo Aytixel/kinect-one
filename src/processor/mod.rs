@@ -1,9 +1,12 @@
+pub mod color;
 pub mod depth;
-pub mod rgb;
+mod registration;
 
 use std::{future::Future, marker::PhantomData};
 
 use crate::Error;
+
+pub use registration::*;
 
 pub trait ProcessTrait: Sized {
     fn process<O, P: ProcessorTrait<Self, O>>(

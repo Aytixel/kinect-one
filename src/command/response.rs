@@ -1,8 +1,8 @@
-use crate::{ReadUnaligned, TABLE_SIZE};
+use crate::{ReadUnaligned, DEPTH_SIZE};
 
 // probably some combination of color camera intrinsics + depth coefficient tables
 #[repr(C, packed)]
-pub struct RgbParamsResponse {
+pub struct ColorParamsResponse {
     // unknown, always seen as 1 so far
     _table_id: u8,
 
@@ -63,7 +63,7 @@ pub struct RgbParamsResponse {
     _table2: [f32; 28 * 23],
 }
 
-impl ReadUnaligned for RgbParamsResponse {}
+impl ReadUnaligned for ColorParamsResponse {}
 
 // depth camera intrinsic & distortion parameters
 #[repr(C, packed)]
@@ -103,17 +103,17 @@ pub struct P0TablesResponse {
 
     _unknown6: u16,
     // row[0] == row[511] == 0x2c9a
-    pub p0_table0: [u16; TABLE_SIZE],
+    pub p0_table0: [u16; DEPTH_SIZE],
     _unknown7: u16,
 
     _unknown8: u16,
     // row[0] == row[511] == 0x08ec
-    pub p0_table1: [u16; TABLE_SIZE],
+    pub p0_table1: [u16; DEPTH_SIZE],
     _unknown9: u16,
 
     _unknown10: u16,
     // row[0] == row[511] == 0x42e8
-    pub p0_table2: [u16; TABLE_SIZE],
+    pub p0_table2: [u16; DEPTH_SIZE],
     _unknown11: u16,
 }
 
@@ -130,7 +130,7 @@ pub struct FirmwareVersionResponse {
 
 impl ReadUnaligned for FirmwareVersionResponse {}
 
-// RGB camera settings reply for a single setting change.
+// Color camera settings reply for a single setting change.
 // Equivalent of NUISENSOR_RGB_CHANGE_STREAM_SETTING_REPLY in NuiSensorLib.h
 #[repr(C, packed)]
 pub struct ColorSettingResponse {

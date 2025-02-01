@@ -17,7 +17,7 @@ pub use opencl_kde::*;
 use crate::{
     config::Config,
     data::{IrParams, P0Tables},
-    LUT_SIZE, TABLE_SIZE,
+    LUT_SIZE, DEPTH_SIZE,
 };
 
 pub use crate::packet::DepthPacket;
@@ -41,21 +41,21 @@ pub trait DepthProcessorTrait {
 
     fn set_x_z_tables(
         &mut self,
-        x_table: &[f32; TABLE_SIZE],
-        z_table: &[f32; TABLE_SIZE],
+        x_table: &[f32; DEPTH_SIZE],
+        z_table: &[f32; DEPTH_SIZE],
     ) -> Result<(), Box<dyn Error>>;
 
     fn set_lookup_table(&mut self, lut: &[i16; LUT_SIZE]) -> Result<(), Box<dyn Error>>;
 
     fn set_ir_params(&mut self, ir_params: &IrParams) -> Result<(), Box<dyn Error>> {
-        let mut x_table = [0.0; TABLE_SIZE];
-        let mut z_table = [0.0; TABLE_SIZE];
+        let mut x_table = [0.0; DEPTH_SIZE];
+        let mut z_table = [0.0; DEPTH_SIZE];
         let mut lut = [0; LUT_SIZE];
 
         const SCALING_FACTOR: f32 = 8192.0;
         const UNAMBIGUOUS_DIST: f32 = 6250.0 / 3.0;
 
-        for i in 0..TABLE_SIZE {
+        for i in 0..DEPTH_SIZE {
             let xi = i % 512;
             let yi = i / 512;
             let xd = (xi as f32 + 0.5 - ir_params.cx) / ir_params.fx;

@@ -4,7 +4,7 @@ use turbojpeg::{decompress, PixelFormat};
 
 use crate::processor::ProcessorTrait;
 
-use super::{ColorSpace, RgbFrame, RgbPacket};
+use super::{ColorFrame, ColorSpace, ColorPacket};
 
 impl From<PixelFormat> for ColorSpace {
     fn from(value: PixelFormat) -> Self {
@@ -33,20 +33,20 @@ impl TryInto<PixelFormat> for ColorSpace {
     }
 }
 
-/// TurboJpeg rgb processor
-pub struct TurboRgbProcessor(PixelFormat);
+/// TurboJpeg color processor
+pub struct TurboColorProcessor(PixelFormat);
 
-impl TurboRgbProcessor {
+impl TurboColorProcessor {
     pub fn new(colorspace: ColorSpace) -> Result<Self, Box<dyn Error>> {
         Ok(Self(colorspace.try_into()?))
     }
 }
 
-impl ProcessorTrait<RgbPacket, RgbFrame> for TurboRgbProcessor {
-    async fn process(&self, input: RgbPacket) -> Result<RgbFrame, Box<dyn Error>> {
+impl ProcessorTrait<ColorPacket, ColorFrame> for TurboColorProcessor {
+    async fn process(&self, input: ColorPacket) -> Result<ColorFrame, Box<dyn Error>> {
         let image = decompress(&input.jpeg_buffer, self.0)?;
 
-        Ok(RgbFrame {
+        Ok(ColorFrame {
             color_space: image.format.into(),
             width: image.width,
             height: image.height,
@@ -62,10 +62,10 @@ impl ProcessorTrait<RgbPacket, RgbFrame> for TurboRgbProcessor {
     fn pipe<'a, 'b, T, P>(
         &'a self,
         processor: &'b P,
-    ) -> crate::processor::PipedProcessor<'a, 'b, RgbPacket, RgbFrame, T, Self, P>
+    ) -> crate::processor::PipedProcessor<'a, 'b, ColorPacket, ColorFrame, T, Self, P>
     where
         Self: Sized,
-        P: ProcessorTrait<RgbFrame, T>,
+        P: ProcessorTrait<ColorFrame, T>,
     {
         crate::processor::PipedProcessor {
             _input: std::marker::PhantomData::default(),

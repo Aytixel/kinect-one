@@ -14,11 +14,15 @@ pub use device::{Device, DeviceEnumerator, DeviceInfo};
 
 const TIMEOUT: Duration = Duration::from_millis(1000);
 
-const TABLE_WIDTH: usize = 512;
-const TABLE_HEIGHT: usize = 424;
-const TABLE_SIZE: usize = TABLE_WIDTH * TABLE_HEIGHT;
+pub const DEPTH_WIDTH: usize = 512;
+pub const DEPTH_HEIGHT: usize = 424;
+pub const DEPTH_SIZE: usize = DEPTH_WIDTH * DEPTH_HEIGHT;
 
-const LUT_SIZE: usize = 2048;
+pub const COLOR_WIDTH: usize = 1920;
+pub const COLOR_HEIGHT: usize = 1080;
+pub const COLOR_SIZE: usize = COLOR_WIDTH * COLOR_HEIGHT;
+
+pub const LUT_SIZE: usize = 2048;
 
 pub mod config {
     pub use crate::settings::{ColorSettingCommandType, LedId, LedMode, LedSettings};

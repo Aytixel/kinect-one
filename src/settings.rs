@@ -270,8 +270,8 @@ impl Default for DepthProcessorParams {
 #[derive(Debug, Clone, Copy)]
 pub struct PacketParams {
     pub max_iso_packet_size: u16,
-    pub rgb_transfer_size: usize,
-    pub rgb_num_transfers: usize,
+    pub color_transfer_size: usize,
+    pub color_num_transfers: usize,
     pub ir_packets_per_transfer: i32,
     pub ir_num_transfers: usize,
 }
@@ -281,24 +281,24 @@ impl Default for PacketParams {
         if cfg!(target_os = "macos") {
             Self {
                 max_iso_packet_size: 0,
-                rgb_transfer_size: 0x4000,
-                rgb_num_transfers: 20,
+                color_transfer_size: 0x4000,
+                color_num_transfers: 20,
                 ir_packets_per_transfer: 128,
                 ir_num_transfers: 4,
             }
         } else if cfg!(target_os = "windows") {
             Self {
                 max_iso_packet_size: 0,
-                rgb_transfer_size: 1048576,
-                rgb_num_transfers: 3,
+                color_transfer_size: 1048576,
+                color_num_transfers: 3,
                 ir_packets_per_transfer: 64,
                 ir_num_transfers: 8,
             }
         } else {
             Self {
                 max_iso_packet_size: 0,
-                rgb_transfer_size: 0x4000,
-                rgb_num_transfers: 20,
+                color_transfer_size: 0x4000,
+                color_num_transfers: 20,
                 ir_packets_per_transfer: 8,
                 ir_num_transfers: 60,
             }

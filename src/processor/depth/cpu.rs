@@ -2,7 +2,7 @@ use std::{error::Error, f32::consts::PI};
 
 use crate::{
     config::Config, data::P0Tables, processor::ProcessorTrait, settings::DepthProcessorParams,
-    LUT_SIZE, TABLE_HEIGHT, TABLE_SIZE, TABLE_WIDTH,
+    DEPTH_HEIGHT, DEPTH_SIZE, LUT_SIZE, DEPTH_WIDTH,
 };
 
 use super::{DepthFrame, DepthPacket, DepthProcessorTrait, IrFrame};
@@ -76,32 +76,32 @@ impl CpuDepthProcessor {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let mut processor = Self {
             params: DepthProcessorParams::default(),
-            x_table: Mat::<f32>::new(TABLE_WIDTH, TABLE_HEIGHT),
-            z_table: Mat::<f32>::new(TABLE_WIDTH, TABLE_HEIGHT),
+            x_table: Mat::<f32>::new(DEPTH_WIDTH, DEPTH_HEIGHT),
+            z_table: Mat::<f32>::new(DEPTH_WIDTH, DEPTH_HEIGHT),
             lut11_to_16: Box::new([0; LUT_SIZE]),
             trig_table0: [
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
             ],
             trig_table1: [
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
             ],
             trig_table2: [
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
-                vec![0.0; TABLE_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
+                vec![0.0; DEPTH_SIZE],
             ],
             enable_bilateral_filter: true,
             enable_edge_filter: true,
@@ -139,9 +139,9 @@ impl CpuDepthProcessor {
         p0_table: &Mat<u16>,
         trig_table: &mut [Vec<f32>; 6],
     ) {
-        for y in 0..TABLE_HEIGHT {
-            for x in 0..TABLE_WIDTH {
-                let offset = y * TABLE_WIDTH + x;
+        for y in 0..DEPTH_HEIGHT {
+            for x in 0..DEPTH_WIDTH {
+                let offset = y * DEPTH_WIDTH + x;
                 let p0 = -(p0_table.get(x, y) as f32) * 0.000031 * PI;
 
                 let tmp0 = p0 + phase_in_rad[0];
@@ -176,7 +176,7 @@ impl CpuDepthProcessor {
                 m_out[1] = 0.0;
                 m_out[2] = 65535.0;
             } else {
-                let offset = y * TABLE_WIDTH + x;
+                let offset = y * DEPTH_WIDTH + x;
 
                 // formula given in Patent US 8,587,771 B2
                 let ir_image_a = (trig_table[0][offset] * m0 as f32
@@ -535,9 +535,9 @@ impl DepthProcessorTrait for CpuDepthProcessor {
     }
 
     fn set_p0_tables(&mut self, p0_tables: &P0Tables) -> Result<(), Box<dyn Error>> {
-        let mut p0_table0 = Mat::from(TABLE_WIDTH, p0_tables.p0_table0.to_vec());
-        let mut p0_table1 = Mat::from(TABLE_WIDTH, p0_tables.p0_table1.to_vec());
-        let mut p0_table2 = Mat::from(TABLE_WIDTH, p0_tables.p0_table2.to_vec());
+        let mut p0_table0 = Mat::from(DEPTH_WIDTH, p0_tables.p0_table0.to_vec());
+        let mut p0_table1 = Mat::from(DEPTH_WIDTH, p0_tables.p0_table1.to_vec());
+        let mut p0_table2 = Mat::from(DEPTH_WIDTH, p0_tables.p0_table2.to_vec());
 
         if self.flip_ptables {
             p0_table0.horizontal_flip();
@@ -554,8 +554,8 @@ impl DepthProcessorTrait for CpuDepthProcessor {
 
     fn set_x_z_tables(
         &mut self,
-        x_table: &[f32; TABLE_SIZE],
-        z_table: &[f32; TABLE_SIZE],
+        x_table: &[f32; DEPTH_SIZE],
+        z_table: &[f32; DEPTH_SIZE],
     ) -> Result<(), Box<dyn Error>> {
         self.x_table.copy_from_slice(x_table);
         self.z_table.copy_from_slice(z_table);
@@ -572,20 +572,20 @@ impl DepthProcessorTrait for CpuDepthProcessor {
 
 impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
     async fn process(&self, input: DepthPacket) -> Result<(IrFrame, DepthFrame), Box<dyn Error>> {
-        let mut m: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(TABLE_WIDTH, TABLE_HEIGHT);
-        let mut m_filtered: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(TABLE_WIDTH, TABLE_HEIGHT);
-        let mut m_max_edge_test: Mat<bool> = Mat::<bool>::new(TABLE_WIDTH, TABLE_HEIGHT);
+        let mut m: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
+        let mut m_filtered: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
+        let mut m_max_edge_test: Mat<bool> = Mat::<bool>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
 
         // bilateral filtering
         let mut m_ptr = if self.enable_bilateral_filter {
-            for y in 0..TABLE_HEIGHT {
-                for x in 0..TABLE_WIDTH {
+            for y in 0..DEPTH_HEIGHT {
+                for x in 0..DEPTH_WIDTH {
                     self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
                 }
             }
 
-            for y in 0..TABLE_HEIGHT {
-                for x in 0..TABLE_WIDTH {
+            for y in 0..DEPTH_HEIGHT {
+                for x in 0..DEPTH_WIDTH {
                     *m_max_edge_test.get_mut(x, y) =
                         self.filter_pixel_stage1(x, y, &m, m_filtered.get_mut(x, y));
                 }
@@ -593,8 +593,8 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
 
             m_filtered
         } else {
-            for y in 0..TABLE_HEIGHT {
-                for x in 0..TABLE_WIDTH {
+            for y in 0..DEPTH_HEIGHT {
+                for x in 0..DEPTH_WIDTH {
                     self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
                 }
             }
@@ -602,14 +602,14 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
             m
         };
 
-        let mut out_ir: Mat<f32> = Mat::<f32>::new(TABLE_WIDTH, TABLE_HEIGHT);
-        let mut out_depth: Mat<f32> = Mat::<f32>::new(TABLE_WIDTH, TABLE_HEIGHT);
+        let mut out_ir: Mat<f32> = Mat::<f32>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
+        let mut out_depth: Mat<f32> = Mat::<f32>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
 
         if self.enable_edge_filter {
-            let mut depth_ir_sum: Mat<[f32; 3]> = Mat::<[f32; 3]>::new(TABLE_WIDTH, TABLE_HEIGHT);
+            let mut depth_ir_sum: Mat<[f32; 3]> = Mat::<[f32; 3]>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
 
-            for y in 0..TABLE_HEIGHT {
-                for x in 0..TABLE_WIDTH {
+            for y in 0..DEPTH_HEIGHT {
+                for x in 0..DEPTH_WIDTH {
                     let (out_ir_value, raw_depth, ir_sum) =
                         self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
 
@@ -627,8 +627,8 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
                 }
             }
 
-            for y in 0..TABLE_HEIGHT {
-                for x in 0..TABLE_WIDTH {
+            for y in 0..DEPTH_HEIGHT {
+                for x in 0..DEPTH_WIDTH {
                     *out_depth.get_mut(x, 423 - y) = self.filter_pixel_stage2(
                         x,
                         y,
@@ -638,8 +638,8 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
                 }
             }
         } else {
-            for y in 0..TABLE_HEIGHT {
-                for x in 0..TABLE_WIDTH {
+            for y in 0..DEPTH_HEIGHT {
+                for x in 0..DEPTH_WIDTH {
                     let (out_ir_value, out_depth_value, _) =
                         self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
 
@@ -651,15 +651,15 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
 
         Ok((
             IrFrame {
-                width: TABLE_WIDTH,
-                height: TABLE_HEIGHT,
+                width: DEPTH_WIDTH,
+                height: DEPTH_HEIGHT,
                 buffer: out_ir.buffer,
                 sequence: input.sequence,
                 timestamp: input.timestamp,
             },
             DepthFrame {
-                width: TABLE_WIDTH,
-                height: TABLE_HEIGHT,
+                width: DEPTH_WIDTH,
+                height: DEPTH_HEIGHT,
                 buffer: out_depth.buffer,
                 sequence: input.sequence,
                 timestamp: input.timestamp,

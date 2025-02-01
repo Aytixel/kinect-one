@@ -1,7 +1,7 @@
 use crate::{config::LedSettings, settings::ColorSettingCommandType};
 
 use super::{
-    ColorSettingResponse, Command, DepthParamsResponse, P0TablesResponse, RgbParamsResponse,
+    ColorParamsResponse, ColorSettingResponse, Command, DepthParamsResponse, P0TablesResponse,
 };
 
 // Kinect commands id
@@ -14,7 +14,7 @@ const KINECT_CMD_READ_DATA_PAGE: u32 = 0x22;
 const KINECT_CMD_SET_STREAMING: u32 = 0x2b;
 const KINECT_CMD_SET_MODE: u32 = 0x4b;
 
-const KINECT_CMD_RGB_SETTING: u32 = 0x3e;
+const KINECT_CMD_COLOR_SETTING: u32 = 0x3e;
 
 const KINECT_CMD_STOP: u32 = 0x0a;
 const KINECT_CMD_SHUTDOWN: u32 = 0x00;
@@ -22,7 +22,7 @@ const KINECT_CMD_SHUTDOWN: u32 = 0x00;
 // Response size
 const P0_TABLES_RESPONSE_SIZE: u32 = size_of::<P0TablesResponse>() as u32;
 const DEPTH_PARAMS_RESPONSE_SIZE: u32 = size_of::<DepthParamsResponse>() as u32;
-const RGB_PARAMS_RESPONSE_SIZE: u32 = size_of::<RgbParamsResponse>() as u32;
+const COLOR_PARAMS_RESPONSE_SIZE: u32 = size_of::<ColorParamsResponse>() as u32;
 const COLOR_SETTING_RESPONSE_SIZE: u32 = size_of::<ColorSettingResponse>() as u32;
 
 pub fn read_firware_versions_command() -> Command<KINECT_CMD_READ_FIRMWARE_VERSIONS, 0x200, 0x200, 0>
@@ -70,8 +70,8 @@ pub fn read_depth_params_command(
     }
 }
 
-pub fn read_rgb_params_command(
-) -> Command<KINECT_CMD_READ_DATA_PAGE, 0x1C0000, RGB_PARAMS_RESPONSE_SIZE, 1> {
+pub fn read_color_params_command(
+) -> Command<KINECT_CMD_READ_DATA_PAGE, 0x1C0000, COLOR_PARAMS_RESPONSE_SIZE, 1> {
     Command {
         has_sequence: true,
         parameters: [0x04],
@@ -116,7 +116,8 @@ pub fn set_mode_command(enabled: bool, mode: u32) -> Command<KINECT_CMD_SET_MODE
 pub fn color_setting_command(
     command: ColorSettingCommandType,
     value: u32,
-) -> Command<KINECT_CMD_RGB_SETTING, COLOR_SETTING_RESPONSE_SIZE, COLOR_SETTING_RESPONSE_SIZE, 4> {
+) -> Command<KINECT_CMD_COLOR_SETTING, COLOR_SETTING_RESPONSE_SIZE, COLOR_SETTING_RESPONSE_SIZE, 4>
+{
     Command {
         has_sequence: false,
         parameters: [1, 0, command as u32, value],
