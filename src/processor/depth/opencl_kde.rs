@@ -20,7 +20,7 @@ macro_rules! build_options {
         $(
             $program_builder.bo(BuildOpt::IncludeDefine {
                 ident: stringify!($ident).to_string(),
-                val: format!("{:.32}f", $value),
+                val: format!("{:.16e}f", $value),
             });
         )*
     };
@@ -386,9 +386,9 @@ impl DepthProcessorTrait for OpenCLKdeDepthProcessor {
         for r in 0..TABLE_HEIGHT {
             for c in 0..TABLE_WIDTH {
                 p0_table.push(Float3::new(
-                    p0_tables.p0_table0[r * TABLE_WIDTH + c] as f32 * 0.000031 * PI,
-                    p0_tables.p0_table1[r * TABLE_WIDTH + c] as f32 * 0.000031 * PI,
-                    p0_tables.p0_table2[r * TABLE_WIDTH + c] as f32 * 0.000031 * PI,
+                    -(p0_tables.p0_table0[r * TABLE_WIDTH + c] as f32) * 0.000031 * PI,
+                    -(p0_tables.p0_table1[r * TABLE_WIDTH + c] as f32) * 0.000031 * PI,
+                    -(p0_tables.p0_table2[r * TABLE_WIDTH + c] as f32) * 0.000031 * PI,
                 ));
             }
         }
