@@ -7,8 +7,8 @@ use crate::{
 
 use super::{color::ColorFrame, depth::DepthFrame};
 
-const FILTER_WIDTH_HALF: usize = 2;
-const FILTER_HEIGHT_HALF: usize = 1;
+const FILTER_WIDTH_HALF: isize = 2;
+const FILTER_HEIGHT_HALF: isize = 1;
 const FILTER_TOLERANCE: f32 = 0.01;
 
 // these seem to be hardcoded in the original SDK
@@ -21,10 +21,10 @@ pub struct Registration {
     ir_params: IrParams,
     /// Color camera parameters.
     color_params: ColorParams,
-    distort_map: Vec<usize>,
-    depth_to_color_map_x: Vec<f32>,
-    depth_to_color_map_y: Vec<f32>,
-    depth_to_color_map_yi: Vec<u32>,
+    distort_map: Box<[usize; DEPTH_SIZE]>,
+    depth_to_color_map_x: Box<[f32; DEPTH_SIZE]>,
+    depth_to_color_map_y: Box<[f32; DEPTH_SIZE]>,
+    depth_to_color_map_yi: Box<[usize; DEPTH_SIZE]>,
 }
 
 impl Registration {
@@ -32,10 +32,10 @@ impl Registration {
         Self {
             ir_params: Default::default(),
             color_params: Default::default(),
-            distort_map: vec![0; DEPTH_SIZE],
-            depth_to_color_map_x: vec![0.0; DEPTH_SIZE],
-            depth_to_color_map_y: vec![0.0; DEPTH_SIZE],
-            depth_to_color_map_yi: vec![0; DEPTH_SIZE],
+            distort_map: Box::new([0; DEPTH_SIZE]),
+            depth_to_color_map_x: Box::new([0.0; DEPTH_SIZE]),
+            depth_to_color_map_y: Box::new([0.0; DEPTH_SIZE]),
+            depth_to_color_map_yi: Box::new([0; DEPTH_SIZE]),
         }
     }
 
@@ -59,7 +59,7 @@ impl Registration {
                 self.depth_to_color_map_x[offset] = rx;
                 self.depth_to_color_map_y[offset] = ry;
                 // compute the y offset to minimize later computations
-                self.depth_to_color_map_yi[offset] = (ry + 0.5) as u32;
+                self.depth_to_color_map_yi[offset] = (ry + 0.5) as usize;
             }
         }
     }
@@ -85,7 +85,7 @@ impl Registration {
             color_space: color_frame.color_space,
             width: DEPTH_WIDTH,
             height: DEPTH_HEIGHT,
-            buffer: Vec::with_capacity(DEPTH_SIZE * bytes_per_pixel),
+            buffer: vec![0; DEPTH_SIZE * bytes_per_pixel],
             sequence: color_frame.sequence,
             timestamp: color_frame.timestamp,
             exposure: color_frame.exposure,
@@ -100,17 +100,9 @@ impl Registration {
             timestamp: depth_frame.timestamp,
         };
 
-        let color_cx = self.color_params.cx * 0.5; // 0.5f added for later rounding
-
-        // size of filter map with a border of filter_height_half on top and bottom so that no check for borders is needed.
-        // since the color image is wide angle no border to the sides is needed.
-        let size_filter_map = COLOR_SIZE + COLOR_WIDTH * FILTER_HEIGHT_HALF * 2;
-        // offset to the important data
-        let offset_filter_map = COLOR_WIDTH * FILTER_HEIGHT_HALF;
-
         // map for storing the min z values used for each color pixel
         // initializing the depth_map with values outside of the Kinect2 range if filter is enabled
-        let mut filter_map = vec![if enable_filter { 0.0 } else { INFINITY }; size_filter_map];
+        let mut filter_map = [INFINITY; COLOR_SIZE];
 
         // map for storing the color offset for each depth pixel
         let mut depth_to_c_off = Vec::with_capacity(DEPTH_SIZE);
@@ -137,15 +129,13 @@ impl Registration {
             }
 
             // calculating x offset for color image based on depth value
-            let rx = (self.depth_to_color_map_x[i] + (self.color_params.shift_m / z))
+            let cx = ((self.depth_to_color_map_x[i] + (self.color_params.shift_m / z))
                 * self.color_params.fx
-                + color_cx;
-            // same as round for positive numbers (0.5f was already added to color_cx)
+                + self.color_params.cx.round()) as usize;
             // getting y offset for depth image
-            let cx = rx;
             let cy = self.depth_to_color_map_yi[i];
             // combining offsets
-            let c_off = cx as usize + cy as usize * COLOR_WIDTH;
+            let c_off = cx + cy * COLOR_WIDTH;
 
             // check if c_off is outside of color image
             // checking rx/cx is not needed because the color image is much wider then the depth image
@@ -159,61 +149,48 @@ impl Registration {
 
             if enable_filter {
                 // setting a window around the filter map pixel corresponding to the color pixel with the current z value
-                let mut yi = (cy as usize - FILTER_HEIGHT_HALF) * COLOR_WIDTH + cx as usize
-                    - FILTER_WIDTH_HALF; // index of first pixel to set
+                for y_off in -FILTER_HEIGHT_HALF..FILTER_HEIGHT_HALF {
+                    for x_off in -FILTER_WIDTH_HALF..FILTER_WIDTH_HALF {
+                        if let (Some(cx), Some(cy)) =
+                            (cx.checked_add_signed(x_off), cy.checked_add_signed(y_off))
+                        {
+                            let offset = cx + cy * COLOR_WIDTH;
 
-                for _row in -(FILTER_HEIGHT_HALF as isize)..=(FILTER_HEIGHT_HALF as isize) {
-                    let mut it = offset_filter_map + yi;
-
-                    for _column in -(FILTER_WIDTH_HALF as isize)..=(FILTER_WIDTH_HALF as isize) {
-                        // only set if the current z is smaller
-                        if z < filter_map[it] {
-                            filter_map[it] = z;
+                            // only set if the current z is smaller
+                            if offset < COLOR_SIZE && z < filter_map[offset] {
+                                filter_map[offset] = z;
+                            }
                         }
-
-                        it += 1;
                     }
-
-                    yi += COLOR_WIDTH; // index increased by a full row each iteration
                 }
             }
         }
 
         /* Construct 'registered' image. */
 
-        /* Filter drops duplicate pixels due to aspect of two cameras. */
-        if enable_filter {
-            // run through all registered color pixels and set them based on filter results
-            for i in 0..DEPTH_SIZE {
-                let Some(c_off) = depth_to_c_off[i] else {
-                    // if offset is out of image
-                    registered_frame.buffer.extend(vec![0; bytes_per_pixel]);
-                    continue;
-                };
+        // run through all registered color pixels and set them based on filter results if enabled
+        for i in 0..DEPTH_SIZE {
+            let Some(c_off) = depth_to_c_off[i] else {
+                // if offset is out of image
+                continue;
+            };
 
-                let min_z = filter_map[offset_filter_map + c_off];
+            /* Filter drops duplicate pixels due to aspect of two cameras. */
+            if enable_filter {
+                let min_z = filter_map[c_off];
                 let z = undistorted_frame.buffer[i];
 
                 // check for allowed depth noise
                 if (z - min_z) / z > FILTER_TOLERANCE {
-                    registered_frame.buffer.extend(vec![0; bytes_per_pixel]);
-                } else {
-                    registered_frame
-                        .buffer
-                        .extend_from_slice(&color_frame.buffer[c_off..c_off + bytes_per_pixel]);
-                };
-            }
-        } else {
-            // run through all registered color pixels and set them based on c_off
-            for i in 0..DEPTH_SIZE {
-                if let Some(c_off) = depth_to_c_off[i] {
-                    registered_frame
-                        .buffer
-                        .extend_from_slice(&color_frame.buffer[c_off..c_off + bytes_per_pixel]);
-                } else {
-                    registered_frame.buffer.extend(vec![0; bytes_per_pixel]);
+                    continue;
                 }
             }
+
+            let c_off = c_off * bytes_per_pixel;
+            let r_off = i * bytes_per_pixel;
+
+            registered_frame.buffer[r_off..r_off + bytes_per_pixel]
+                .copy_from_slice(&color_frame.buffer[c_off..c_off + bytes_per_pixel]);
         }
 
         (registered_frame, undistorted_frame)
@@ -314,9 +291,9 @@ impl Registration {
         )
     }
 
-    pub fn depth_to_color(&self, mut mx: f32, mut my: f32) -> (f32, f32) {
-        mx = (mx - self.ir_params.cx) * DEPTH_Q;
-        my = (my - self.ir_params.cy) * DEPTH_Q;
+    pub fn depth_to_color(&self, mx: f32, my: f32) -> (f32, f32) {
+        let mx = (mx - self.ir_params.cx) * DEPTH_Q;
+        let my = (my - self.ir_params.cy) * DEPTH_Q;
 
         let wx = (mx * mx * mx * self.color_params.mx_x3y0)
             + (my * my * my * self.color_params.mx_x0y3)

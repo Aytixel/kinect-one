@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         if let (Some(color_frame), Some(depth_frame)) = (&color_frame, &depth_frame) {
             let (registered_frame, undistorted_frame) =
-                registration.undistort_depth_and_color(color_frame, depth_frame, false);
+                registration.undistort_depth_and_color(color_frame, depth_frame, true);
 
             let mut comp = Compress::new(mozjpeg::ColorSpace::JCS_RGB);
 
