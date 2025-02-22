@@ -316,7 +316,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(())
     }
 
-    pub fn poll_color_frame(&mut self) -> Result<Option<ColorPacket>, Error> {
+    pub fn poll_color_packet(&mut self) -> Result<Option<ColorPacket>, Error> {
         if !self.inner.running {
             return Err(Error::OnlyWhileRunning("Reading color frame"));
         }
@@ -343,7 +343,7 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(result)
     }
 
-    pub fn poll_depth_frame(&mut self) -> Result<Option<DepthPacket>, Error> {
+    pub fn poll_depth_packet(&mut self) -> Result<Option<DepthPacket>, Error> {
         if !self.inner.running {
             return Err(Error::OnlyWhileRunning("Reading depth frame"));
         }

@@ -3,10 +3,10 @@ use std::{error::Error, fs::write};
 use kinect_one::{
     processor::{
         color::{ColorSpace, MozColorProcessor},
-        depth::{DepthProcessorTrait, OpenCLKdeDepthProcessor},
+        depth::{DepthProcessorTrait, OpenCLDepthProcessor},
         ProcessTrait, Registration,
     },
-    DeviceEnumerator, DEPTH_HEIGHT, DEPTH_SIZE, DEPTH_WIDTH,
+    DeviceEnumerator, PacketSync, DEPTH_HEIGHT, DEPTH_SIZE, DEPTH_WIDTH,
 };
 use mozjpeg::Compress;
 use ocl::{Device, Platform};
@@ -28,24 +28,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
     registration.set_color_params(device.get_color_params());
 
     let color_processor = MozColorProcessor::new(ColorSpace::RGB, false, false);
-    let mut depth_processor = OpenCLKdeDepthProcessor::new(Device::first(Platform::first()?)?)?;
+    let mut depth_processor = OpenCLDepthProcessor::new(Device::first(Platform::first()?)?)?;
 
     depth_processor.set_p0_tables(device.get_p0_tables())?;
     depth_processor.set_ir_params(device.get_ir_params())?;
 
-    let mut color_frame = None;
-    let mut depth_frame = None;
+    let mut packet_sync = PacketSync::new();
 
     loop {
-        if let Ok(Some(frame)) = device.poll_color_frame() {
-            color_frame = Some(frame.process(&color_processor).await?);
+        if let Ok(Some(packet)) = device.poll_color_packet() {
+            packet_sync.push_color_packet(packet);
         }
-        if let Ok(Some(frame)) = device.poll_depth_frame() {
-            depth_frame = Some(frame.process(&depth_processor).await?.1);
+        if let Ok(Some(packet)) = device.poll_depth_packet() {
+            packet_sync.push_depth_packet(packet);
         }
-        if let (Some(color_frame), Some(depth_frame)) = (&color_frame, &depth_frame) {
+
+        if let Some((color_packet, depth_packet)) = packet_sync.poll_packets() {
+            println!("{} {}", color_packet.timestamp, depth_packet.timestamp);
+
+            let color_frame = color_packet.process(&color_processor).await?;
+            let depth_frame = depth_packet.process(&depth_processor).await?.1;
+
             let (registered_frame, undistorted_frame) =
-                registration.undistort_depth_and_color(color_frame, depth_frame, true);
+                registration.undistort_depth_and_color(&color_frame, &depth_frame, true);
 
             let mut comp = Compress::new(mozjpeg::ColorSpace::JCS_RGB);
 
@@ -71,7 +76,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    device.close()?;
+    // device.close()?;
 
-    Ok(())
+    // Ok(())
 }

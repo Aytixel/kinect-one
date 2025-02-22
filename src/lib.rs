@@ -6,8 +6,9 @@ mod settings;
 pub mod data;
 pub mod processor;
 
-use std::{any::type_name, io, ptr::read_unaligned, time::Duration};
+use std::{any::type_name, collections::VecDeque, io, ptr::read_unaligned, time::Duration};
 
+use packet::{ColorPacket, DepthPacket};
 use thiserror::Error;
 
 pub use device::{Device, DeviceEnumerator, DeviceInfo};
@@ -127,5 +128,50 @@ impl FromBuffer for u16 {
 
         buffer.copy_from_slice(&bytes[..2]);
         u16::from_le_bytes(buffer)
+    }
+}
+
+pub struct PacketSync {
+    color_packet: Option<ColorPacket>,
+    depth_packet: VecDeque<DepthPacket>,
+}
+
+impl PacketSync {
+    pub fn new() -> Self {
+        Self {
+            color_packet: None,
+            depth_packet: VecDeque::with_capacity(10),
+        }
+    }
+
+    pub fn push_color_packet(&mut self, color_packet: ColorPacket) {
+        self.color_packet = Some(color_packet);
+    }
+
+    pub fn push_depth_packet(&mut self, depth_packet: DepthPacket) {
+        self.depth_packet.push_back(depth_packet);
+    }
+
+    pub fn poll_packets(&mut self) -> Option<(ColorPacket, DepthPacket)> {
+        if let Some(color_packet) = self.color_packet.take() {
+            if let Some(depth_packet_position) = self
+                .depth_packet
+                .iter()
+                .position(|depth_packet| depth_packet.timestamp > color_packet.timestamp)
+            {
+                self.depth_packet.drain(..depth_packet_position);
+
+                return Some((color_packet, self.depth_packet.pop_front().unwrap()));
+            }
+
+            self.color_packet = Some(color_packet);
+        }
+
+        return None;
+    }
+
+    pub fn clear(&mut self) {
+        self.color_packet = None;
+        self.depth_packet.clear();
     }
 }
