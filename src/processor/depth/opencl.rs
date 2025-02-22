@@ -8,7 +8,7 @@ use ocl::{
 
 use crate::{
     config::Config, data::P0Tables, processor::ProcessorTrait, settings::DepthProcessorParams,
-    DEPTH_HEIGHT, DEPTH_SIZE, LUT_SIZE, DEPTH_WIDTH,
+    DEPTH_HEIGHT, DEPTH_SIZE, DEPTH_WIDTH, LUT_SIZE,
 };
 
 use super::{DepthFrame, DepthPacket, DepthProcessorTrait, IrFrame};
@@ -38,7 +38,7 @@ struct Buffers {
     p0_table: Buffer<Float3>,
     x_table: Buffer<f32>,
     z_table: Buffer<f32>,
-    packet: Buffer<u8>,
+    packet: Buffer<u16>,
     // Read-Write
     a: Buffer<Float3>,
     b: Buffer<Float3>,
@@ -181,7 +181,7 @@ impl OpenCLDepthProcessor {
             packet: pro_que
                 .buffer_builder()
                 .flags(MemFlags::READ_ONLY)
-                .len(((DEPTH_SIZE * 11) / 16) * 10 * size_of::<u16>())
+                .len(((DEPTH_SIZE * 11) / 16) * 10)
                 .build()?,
             a: pro_que
                 .buffer_builder()
@@ -367,7 +367,13 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for OpenCLDepthProcessor
 
         self.buffers
             .packet
-            .write(&input.buffer)
+            .write(
+                &input
+                    .buffer
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect::<Vec<u16>>(),
+            )
             .enew(&mut event_write)
             .enq()?;
 
