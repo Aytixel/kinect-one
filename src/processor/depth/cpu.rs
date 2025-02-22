@@ -2,10 +2,13 @@ use std::{error::Error, f32::consts::PI};
 
 use crate::{
     config::Config, data::P0Tables, processor::ProcessorTrait, settings::DepthProcessorParams,
-    DEPTH_HEIGHT, DEPTH_SIZE, LUT_SIZE, DEPTH_WIDTH,
+    DEPTH_HEIGHT, DEPTH_SIZE, DEPTH_WIDTH, LUT_SIZE,
 };
 
 use super::{DepthFrame, DepthPacket, DepthProcessorTrait, IrFrame};
+
+const INV_NINE: f32 = 1.0 / 9.0;
+const TWO_PI: f32 = 2.0 * PI;
 
 #[derive(Clone)]
 struct Mat<T: Clone + Copy> {
@@ -188,8 +191,8 @@ impl CpuDepthProcessor {
                     + trig_table[5][offset] * m2 as f32)
                     * ab_multiplier_per_frq;
 
-                let ir_amplitude = (ir_image_a * ir_image_a + ir_image_b * ir_image_b).sqrt()
-                    * self.params.ab_multiplier;
+                let ir_amplitude =
+                    (ir_image_a.powi(2) + ir_image_b.powi(2)).sqrt() * self.params.ab_multiplier;
 
                 m_out[0] = ir_image_a;
                 m_out[1] = ir_image_b;
@@ -243,102 +246,98 @@ impl CpuDepthProcessor {
         m_out: &mut [f32],
     ) -> bool {
         let m_ptr = m.get(x, y);
-        let mut bilateral_max_edge_test = true;
 
         if x < 1 || y < 1 || x > 510 || y > 422 {
             m_out.copy_from_slice(&m_ptr);
-        } else {
-            let mut m_normalized = [0.0; 2];
-            let mut other_m_normalized = [0.0; 2];
+            return true;
+        }
 
-            let mut offset = 0;
+        let mut bilateral_max_edge_test = true;
+        let mut offset = 0;
 
-            for _ in 0..3 {
-                let norm2 = m_ptr[offset] * m_ptr[offset] + m_ptr[offset + 1] * m_ptr[offset + 1];
-                let mut inv_norm = 1.0 / norm2.sqrt();
-                if inv_norm.is_nan() {
-                    inv_norm = f32::INFINITY;
-                }
+        for _ in 0..3 {
+            let norm2 = m_ptr[offset].powi(2) + m_ptr[offset + 1].powi(2);
+            let inv_norm = if norm2 > 0.0 {
+                norm2.sqrt().recip()
+            } else {
+                f32::INFINITY
+            };
 
-                m_normalized[0] = m_ptr[offset] * inv_norm;
-                m_normalized[1] = m_ptr[offset + 1] * inv_norm;
+            let m_norm_x = m_ptr[offset] * inv_norm;
+            let m_norm_y = m_ptr[offset + 1] * inv_norm;
 
-                let mut threshold = (self.params.joint_bilateral_ab_threshold
-                    * self.params.joint_bilateral_ab_threshold)
-                    / (self.params.ab_multiplier * self.params.ab_multiplier);
-                let mut joint_bilateral_exp = self.params.joint_bilateral_exp;
+            let threshold = (self.params.joint_bilateral_ab_threshold.powi(2)
+                / self.params.ab_multiplier.powi(2))
+            .max(0.0);
+            let joint_bilateral_exp = if norm2 >= threshold {
+                self.params.joint_bilateral_exp
+            } else {
+                0.0
+            };
 
-                if norm2 < threshold {
-                    threshold = 0.0;
-                    joint_bilateral_exp = 0.0;
-                }
+            let mut weight_acc = 0.0;
+            let mut weighted_m_acc_x = 0.0;
+            let mut weighted_m_acc_y = 0.0;
+            let mut dist_acc = 0.0;
 
-                let mut weight_acc = 0.0;
-                let mut weighted_m_acc = [0.0; 2];
-                let mut dist_acc = 0.0;
-                let mut j = 0;
+            let bilateral_exp_factor = -1.442695 * joint_bilateral_exp;
 
-                for yi in -1..=1 {
-                    for xi in -1..=1 {
-                        if yi == 0 && xi == 0 {
-                            weight_acc += self.params.gaussian_kernel[j];
+            let mut j = 0;
 
-                            weighted_m_acc[0] += self.params.gaussian_kernel[j] * m_ptr[offset];
-                            weighted_m_acc[1] += self.params.gaussian_kernel[j] * m_ptr[offset + 1];
-                            continue;
-                        }
+            for yi in -1..=1 {
+                for xi in -1..=1 {
+                    let kernel_weight = self.params.gaussian_kernel[j];
 
-                        let other_m_ptr =
-                            m.get((x as isize + xi) as usize, (y as isize + yi) as usize);
-                        let other_norm2 = other_m_ptr[offset] * other_m_ptr[offset]
-                            + other_m_ptr[offset + 1] * other_m_ptr[offset + 1];
-                        let mut other_inv_norm = 1.0 / other_norm2.sqrt();
+                    if yi == 0 && xi == 0 {
+                        weight_acc += kernel_weight;
 
-                        if other_inv_norm.is_nan() {
-                            other_inv_norm = f32::INFINITY;
-                        }
-
-                        other_m_normalized[0] = other_m_ptr[offset] * other_inv_norm;
-                        other_m_normalized[1] = other_m_ptr[offset + 1] * other_inv_norm;
-
-                        let dist = (-(other_m_normalized[0] * m_normalized[0]
-                            + other_m_normalized[1] * m_normalized[1])
-                            + 1.0)
-                            * 0.5;
-
-                        let mut weight = 0.0;
-
-                        if other_norm2 >= threshold {
-                            weight = self.params.gaussian_kernel[j]
-                                * (-1.442695 * joint_bilateral_exp * dist).exp();
-                            dist_acc += dist;
-                        }
-
-                        weighted_m_acc[0] += weight * other_m_ptr[offset];
-                        weighted_m_acc[1] += weight * other_m_ptr[offset + 1];
-
-                        weight_acc += weight;
-
-                        j += 1;
+                        weighted_m_acc_x += kernel_weight * m_ptr[offset];
+                        weighted_m_acc_y += kernel_weight * m_ptr[offset + 1];
+                        continue;
                     }
+
+                    let other_m_ptr = m.get((x as isize + xi) as usize, (y as isize + yi) as usize);
+                    let other_norm2 = other_m_ptr[offset].powi(2) + other_m_ptr[offset + 1].powi(2);
+                    let other_inv_norm = if other_norm2 > 0.0 {
+                        other_norm2.sqrt().recip()
+                    } else {
+                        f32::INFINITY
+                    };
+
+                    let dist = (-(other_m_ptr[offset] * other_inv_norm * m_norm_x
+                        + other_m_ptr[offset + 1] * other_inv_norm * m_norm_y)
+                        + 1.0)
+                        * 0.5;
+
+                    let mut weight = 0.0;
+
+                    if other_norm2 >= threshold {
+                        weight = kernel_weight * (bilateral_exp_factor * dist).exp();
+                        dist_acc += dist;
+                    }
+
+                    weighted_m_acc_x += weight * other_m_ptr[offset];
+                    weighted_m_acc_y += weight * other_m_ptr[offset + 1];
+
+                    weight_acc += weight;
+
+                    j += 1;
                 }
-
-                bilateral_max_edge_test &= dist_acc < self.params.joint_bilateral_max_edge;
-
-                m_out[offset] = if weight_acc > 0.0 {
-                    weighted_m_acc[0] / weight_acc
-                } else {
-                    0.0
-                };
-                m_out[offset + 1] = if weight_acc > 0.0 {
-                    weighted_m_acc[1] / weight_acc
-                } else {
-                    0.0
-                };
-                m_out[offset + 2] = m_ptr[offset + 2];
-
-                offset += 3;
             }
+
+            bilateral_max_edge_test &= dist_acc < self.params.joint_bilateral_max_edge;
+
+            let weight_recip = if weight_acc > 0.0 {
+                weight_acc.recip()
+            } else {
+                0.0
+            };
+
+            m_out[offset] = weighted_m_acc_x * weight_recip;
+            m_out[offset + 1] = weighted_m_acc_y * weight_recip;
+            m_out[offset + 2] = m_ptr[offset + 2];
+
+            offset += 3;
         }
 
         bilateral_max_edge_test
@@ -348,11 +347,13 @@ impl CpuDepthProcessor {
         let mut tmp0 = m[1].atan2(m[0]);
 
         if tmp0 < 0.0 {
-            tmp0 += 2.0 * PI;
+            tmp0 += TWO_PI;
         }
 
-        m[0] = if tmp0.is_nan() { 0.0 } else { tmp0 }; // phase
-        m[1] = (m[0] * m[0] + m[1] * m[1]).sqrt() * self.params.ab_multiplier; // ir amplitude
+        // phase
+        m[0] = if tmp0.is_nan() { 0.0 } else { tmp0 };
+        // ir amplitude
+        m[1] = (m[0].powi(2) + m[1].powi(2)).sqrt() * self.params.ab_multiplier;
     }
 
     fn process_pixel_stage2(&self, x: usize, y: usize, m: &mut [f32; 9]) -> (f32, f32, f32) {
@@ -371,9 +372,9 @@ impl CpuDepthProcessor {
             if ir_min < self.params.individual_ab_threshold || ir_sum < self.params.ab_threshold {
                 0.0
             } else {
-                let t0 = m0[0] / (2.0 * PI) * 3.0;
-                let t1 = m1[0] / (2.0 * PI) * 15.0;
-                let t2 = m2[0] / (2.0 * PI) * 2.0;
+                let t0 = m0[0] / TWO_PI * 3.0;
+                let t1 = m1[0] / TWO_PI * 15.0;
+                let t2 = m2[0] / TWO_PI * 2.0;
 
                 let t5 = f32::floor((t1 - t0) * 0.333333 + 0.5) * 3.0 + t0;
                 let t3 = -t2 + t5;
@@ -393,38 +394,40 @@ impl CpuDepthProcessor {
                 let mut t7 = t7 * 0.066667; // = / 15
 
                 let t9 = t8 + t6 + t7; // transformed phase measurements
-                let t10 = t9 * 0.333333; // some avg
 
-                t6 *= 2.0 * PI;
-                t7 *= 2.0 * PI;
-                t8 *= 2.0 * PI;
+                t6 *= TWO_PI;
+                t7 *= TWO_PI;
+                t8 *= TWO_PI;
 
                 // some cross product
                 let t8_new = t7 * 0.826977 - t8 * 0.110264;
                 let t6_new = t8 * 0.551318 - t6 * 0.826977;
                 let t7_new = t6 * 0.110264 - t7 * 0.551318;
 
-                let norm = t8_new * t8_new + t6_new * t6_new + t7_new * t7_new;
-                let mask = if t9 >= 0.0 { 1.0 } else { 0.0 };
-                let t10 = t10 * mask;
+                let norm = t8_new.powi(2) + t6_new.powi(2) + t7_new.powi(2);
 
-                let mut ir_x = if self.params.ab_confidence_slope > 0.0 {
+                let ir_x = ((if self.params.ab_confidence_slope > 0.0 {
                     m0[1].min(m1[1]).min(m2[1])
                 } else {
                     m0[1].max(m1[1]).max(m2[1])
-                };
-
-                ir_x = ir_x.ln();
-                ir_x = (ir_x * self.params.ab_confidence_slope * 0.301030
+                }
+                .ln()
+                    * self.params.ab_confidence_slope
+                    * 0.301030
                     + self.params.ab_confidence_offset)
-                    * 3.321928;
-                ir_x = ir_x.exp();
-                ir_x = ir_x
-                    .min(self.params.max_dealias_confidence)
-                    .max(self.params.min_dealias_confidence);
-                ir_x *= ir_x;
+                    * 3.321928)
+                    .exp()
+                    .clamp(
+                        self.params.min_dealias_confidence,
+                        self.params.max_dealias_confidence,
+                    )
+                    .powi(2);
 
-                t10 * if ir_x >= norm { 1.0 } else { 0.0 }
+                if t9 >= 0.0 && ir_x >= norm {
+                    t9 * 0.333333
+                } else {
+                    0.0
+                }
             };
 
         if phase > 0.0 {
@@ -490,9 +493,8 @@ impl CpuDepthProcessor {
                     }
                 }
 
-                let tmp0 = ((squared_ir_sum_acc * 9.0 - ir_sum_acc * ir_sum_acc).sqrt())
-                    / 9.0
-                    / (ir_sum_acc / 9.0).max(self.params.edge_ab_avg_min_value);
+                let tmp0 = ((squared_ir_sum_acc * 9.0 - ir_sum_acc * ir_sum_acc).sqrt()) * INV_NINE
+                    / (ir_sum_acc * INV_NINE).max(self.params.edge_ab_avg_min_value);
 
                 let abs_min_diff = (raw_depth - min_depth).abs();
                 let abs_max_diff = (raw_depth - max_depth).abs();
