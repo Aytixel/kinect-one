@@ -90,7 +90,7 @@ impl DepthStreamParser {
                 }
 
                 let processed_packets = self.processed_packets.as_mut().unwrap();
-                let diff = self.current_sequence - *processed_packets;
+                let diff = self.current_sequence.saturating_sub(*processed_packets);
                 const INTERVAL: u32 = 30;
 
                 if (self.current_sequence % INTERVAL == 0 && diff != 0) || diff >= INTERVAL {
