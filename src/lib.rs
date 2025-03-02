@@ -6,14 +6,12 @@ mod settings;
 pub mod data;
 pub mod processor;
 
-use std::{any::type_name, collections::VecDeque, io, ptr::read_unaligned, time::Duration};
+use std::{any::type_name, collections::VecDeque, io, ptr::read_unaligned};
 
 use packet::{ColorPacket, DepthPacket};
 use thiserror::Error;
 
 pub use device::{Device, DeviceEnumerator, DeviceInfo};
-
-const TIMEOUT: Duration = Duration::from_millis(1000);
 
 pub const DEPTH_WIDTH: usize = 512;
 pub const DEPTH_HEIGHT: usize = 424;
@@ -59,9 +57,9 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]
-    Usb(#[from] rusb::Error),
+    UsbActiveConfiguration(#[from] nusb::descriptors::ActiveConfigurationError),
     #[error(transparent)]
-    UsbTransfer(#[from] rusb_async::Error),
+    UsbTransfer(#[from] nusb::transfer::TransferError),
     #[error("Processing error: {0}")]
     Processing(Box<dyn std::error::Error>),
     #[error("No Kinect connected")]

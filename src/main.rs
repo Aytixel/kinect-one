@@ -15,11 +15,10 @@ use ocl::{Device, Platform};
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    let mut devices = DeviceEnumerator::new()?;
-    let mut device = devices.open_default(true)?;
+    let mut device = DeviceEnumerator::open_default(true).await?;
 
     println!("Starting");
-    device.start()?;
+    device.start().await?;
     println!("Started");
 
     let mut registration = Registration::new();
@@ -36,10 +35,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut packet_sync = PacketSync::new();
 
     loop {
-        if let Ok(Some(packet)) = device.poll_color_packet() {
+        if let Ok(Some(packet)) = device.poll_color_packet().await {
             packet_sync.push_color_packet(packet);
         }
-        if let Ok(Some(packet)) = device.poll_depth_packet() {
+        if let Ok(Some(packet)) = device.poll_depth_packet().await {
             packet_sync.push_depth_packet(packet);
         }
 
@@ -76,7 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // device.close()?;
+    // device.close().await?;
 
     // Ok(())
 }

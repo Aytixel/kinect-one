@@ -6,8 +6,7 @@ edition = "2021"
 [dependencies]
 thiserror = "2.0.11"
 
-rusb = { git = "https://github.com/Aytixel/rusb.git", branch = "rusb-async" }
-rusb-async = { git = "https://github.com/Aytixel/rusb.git", branch = "rusb-async" }
+nusb = { git = "https://github.com/Aytixel/nusb.git", branch = "main" }
 
 zune-jpeg = { version = "0.4.14", optional = true }
 mozjpeg = { version = "0.10.13", optional = true }

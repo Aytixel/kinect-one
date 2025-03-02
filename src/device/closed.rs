@@ -1,48 +1,46 @@
 use std::fmt::{self, Debug};
 
-use rusb::UsbContext;
-
 use crate::Error;
 
 use super::{Device, DeviceId, DeviceInfo, Opened};
 
 #[derive(Clone)]
-pub struct Closed<C: UsbContext> {
-    pub device: rusb::Device<C>,
+pub struct Closed {
+    pub device_info: nusb::DeviceInfo,
 }
 
-impl<C: UsbContext> Device<Closed<C>> {
+impl Device<Closed> {
     /// Open the device.
-    pub fn open(self, reset: bool) -> Result<Device<Opened<C>>, Error> {
+    pub async fn open(self, reset: bool) -> Result<Device<Opened>, Error> {
         if reset {
-            self.inner.device.open()?.reset()?;
+            self.inner.device_info.open().await?.reset().await?;
         }
 
         Ok(Device {
-            inner: Opened::new(self.inner.device)?,
+            inner: Opened::new(self.inner.device_info).await?,
         })
     }
 }
 
-impl<C: UsbContext> DeviceInfo for Device<Closed<C>> {
+impl DeviceInfo for Device<Closed> {
     fn id(&self) -> DeviceId {
         DeviceId {
-            bus: self.inner.device.bus_number(),
-            address: self.inner.device.address(),
+            bus: self.inner.device_info.busnum(),
+            address: self.inner.device_info.device_address(),
         }
     }
 }
 
-impl<C: UsbContext> Debug for Device<Closed<C>> {
+impl Debug for Device<Closed> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.device.fmt(f)
+        self.inner.device_info.fmt(f)
     }
 }
 
-impl<C: UsbContext> From<rusb::Device<C>> for Device<Closed<C>> {
-    fn from(device: rusb::Device<C>) -> Self {
+impl From<nusb::DeviceInfo> for Device<Closed> {
+    fn from(device_info: nusb::DeviceInfo) -> Self {
         Device {
-            inner: Closed { device },
+            inner: Closed { device_info },
         }
     }
 }

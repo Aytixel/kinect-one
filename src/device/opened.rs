@@ -1,12 +1,16 @@
 use std::{
     fmt::{self, Debug},
-    sync::Arc,
     thread::sleep,
     time::Duration,
 };
 
-use rusb::{request_type, Direction, Recipient, RequestType, TransferType, UsbContext};
-use rusb_async::TransferPool;
+use nusb::{
+    transfer::{
+        ControlOut, ControlType, Queue, Recipient, RequestBuffer, RequestIsochronousBuffer,
+        TransferType,
+    },
+    Interface,
+};
 
 use crate::{
     command::{
@@ -22,7 +26,7 @@ use crate::{
         ColorPacket, DepthPacket,
     },
     settings::{ColorSettingCommandType, LedSettings, PacketParams},
-    Error, FromBuffer, ReadUnaligned, TIMEOUT,
+    Error, FromBuffer, ReadUnaligned,
 };
 
 use super::{Closed, Device, DeviceId, DeviceInfo};
@@ -61,71 +65,83 @@ const REQUEST_SET_SEL: u8 = 0x30;
 const REQUEST_SET_FEATURE: u8 = 0x03;
 const DT_SS_ENDPOINT_COMPANION: u8 = 0x30;
 
-pub struct Opened<C: UsbContext> {
-    command_transaction: CommandTransaction<C>,
-    device_handle: Arc<rusb::DeviceHandle<C>>,
-    device: rusb::Device<C>,
+pub struct Opened {
+    command_transaction: CommandTransaction,
+    device_info: nusb::DeviceInfo,
+    device: nusb::Device,
+    control_and_color_interface: Interface,
+    ir_interface: Interface,
     color_params: ColorParams,
     ir_params: IrParams,
     p0_tables: P0Tables,
     packet_params: PacketParams,
-    color_transfer_pool: TransferPool<C>,
+    color_queue: Queue<RequestBuffer>,
     color_stream_parser: ColorStreamParser,
-    depth_transfer_pool: TransferPool<C>,
+    ir_queue: Queue<RequestIsochronousBuffer>,
     depth_stream_parser: DepthStreamParser,
     running: bool,
 }
 
-impl<C: UsbContext> Opened<C> {
-    pub(super) fn new(device: rusb::Device<C>) -> Result<Self, Error> {
-        let device_handle = Arc::new(device.open()?);
+impl Opened {
+    pub(super) async fn new(device_info: nusb::DeviceInfo) -> Result<Self, Error> {
+        let device = device_info.open().await?;
 
-        if device_handle.active_configuration()? != 1 {
-            device_handle.set_active_configuration(1)?;
+        if device.active_configuration()?.configuration_value() != 1 {
+            device.set_configuration(1).await?;
         }
 
-        device_handle.claim_interface(InterfaceId::ControlAndColor as u8)?;
-        device_handle.claim_interface(InterfaceId::Ir as u8)?;
+        let control_and_color_interface = device
+            .claim_interface(InterfaceId::ControlAndColor as u8)
+            .await?;
+        let ir_interface = device.claim_interface(InterfaceId::Ir as u8).await?;
 
         // set isochronous delay
-        device_handle.write_control(
-            request_type(Direction::Out, RequestType::Standard, Recipient::Device),
-            SET_ISOCH_DELAY,
-            40,
-            0,
-            &[],
-            TIMEOUT,
-        )?;
+        control_and_color_interface
+            .control_out(ControlOut {
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+                request: SET_ISOCH_DELAY,
+                value: 40,
+                index: 0,
+                data: &[],
+            })
+            .await
+            .into_result()?;
 
         let mut opened_device = Self {
             command_transaction: CommandTransaction::new(
                 CONTROL_IN_ENDPOINT,
                 CONTROL_OUT_ENDPOINT,
-                device_handle.clone(),
+                control_and_color_interface.clone(),
             ),
-            device,
             color_params: Default::default(),
             ir_params: Default::default(),
             p0_tables: Default::default(),
             packet_params: Default::default(),
-            color_transfer_pool: TransferPool::new(device_handle.clone())?,
+            color_queue: control_and_color_interface.bulk_in_queue(COLOR_IN_ENDPOINT),
             color_stream_parser: ColorStreamParser::new(),
-            depth_transfer_pool: TransferPool::new(device_handle.clone())?,
+            ir_queue: ir_interface.isochronous_in_queue(IR_IN_ENDPOINT),
             depth_stream_parser: DepthStreamParser::new(),
             running: false,
-            device_handle,
+            control_and_color_interface,
+            ir_interface,
+            device_info,
+            device,
         };
 
         // set power state latencies
-        opened_device.set_sel(&[0x55, 0, 0x55, 0, 0, 0])?;
-        opened_device.set_ir_state(false)?;
+        opened_device.set_sel(&[0x55, 0, 0x55, 0, 0, 0]).await?;
+        opened_device.set_ir_state(false).await?;
         // enable power states
-        opened_device.set_feature(Feature::U1Enable)?;
-        opened_device.set_feature(Feature::U2Enable)?;
-        opened_device.set_video_transfer_function_state(false)?;
+        opened_device.set_feature(Feature::U1Enable).await?;
+        opened_device.set_feature(Feature::U2Enable).await?;
+        opened_device
+            .set_video_transfer_function_state(false)
+            .await?;
         // get ir max packet size
         opened_device.packet_params.max_iso_packet_size = opened_device
             .get_max_iso_packet_size(1, 1, IR_IN_ENDPOINT)
+            .await
             .unwrap_or(0);
 
         if opened_device.packet_params.max_iso_packet_size < 0x8400 {
@@ -139,33 +155,39 @@ impl<C: UsbContext> Opened<C> {
         Ok(opened_device)
     }
 
-    fn set_sel(&self, data: &[u8]) -> Result<(), Error> {
-        self.device_handle.write_control(
-            request_type(Direction::Out, RequestType::Standard, Recipient::Device),
-            REQUEST_SET_SEL,
-            0,
-            0,
-            data,
-            TIMEOUT,
-        )?;
+    async fn set_sel(&self, data: &[u8]) -> Result<(), Error> {
+        self.control_and_color_interface
+            .control_out(ControlOut {
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+                request: REQUEST_SET_SEL,
+                value: 0,
+                index: 0,
+                data,
+            })
+            .await
+            .into_result()?;
 
         Ok(())
     }
 
-    fn set_feature(&self, feature: Feature) -> Result<(), Error> {
-        self.device_handle.write_control(
-            request_type(Direction::Out, RequestType::Standard, feature.recipient()),
-            REQUEST_SET_FEATURE,
-            feature as u16,
-            0,
-            &[],
-            TIMEOUT,
-        )?;
+    async fn set_feature(&self, feature: Feature) -> Result<(), Error> {
+        self.control_and_color_interface
+            .control_out(ControlOut {
+                control_type: ControlType::Standard,
+                recipient: feature.recipient(),
+                request: REQUEST_SET_FEATURE,
+                value: feature as u16,
+                index: 0,
+                data: &[],
+            })
+            .await
+            .into_result()?;
 
         Ok(())
     }
 
-    fn set_feature_function_suspend(
+    async fn set_feature_function_suspend(
         &self,
         low_power_suspend: bool,
         function_remote_wake: bool,
@@ -173,49 +195,43 @@ impl<C: UsbContext> Opened<C> {
         let feature = Feature::FunctionSuspend;
         let suspend_options = (low_power_suspend as u16) + ((function_remote_wake as u16) << 1);
 
-        self.device_handle.write_control(
-            request_type(Direction::Out, RequestType::Standard, feature.recipient()),
-            REQUEST_SET_FEATURE,
-            feature as u16,
-            suspend_options << 8 | 0,
-            &[],
-            TIMEOUT,
-        )?;
+        self.control_and_color_interface
+            .control_out(ControlOut {
+                control_type: ControlType::Standard,
+                recipient: feature.recipient(),
+                request: REQUEST_SET_FEATURE,
+                value: feature as u16,
+                index: suspend_options << 8 | 0,
+                data: &[],
+            })
+            .await
+            .into_result()?;
 
         Ok(())
     }
 
-    fn get_max_iso_packet_size(
+    async fn get_max_iso_packet_size(
         &self,
         configuration_value: u8,
         alternate_setting_index: u8,
         endpoint_address: u8,
     ) -> Option<u16> {
-        let device_descriptor = self.device.device_descriptor().ok()?;
-        let configuration_descriptor = (0..device_descriptor.num_configurations())
-            .filter_map(|configuration_index| {
-                self.device.config_descriptor(configuration_index).ok()
-            })
-            .find(|configuration_descriptor| {
-                configuration_descriptor.number() == configuration_value
-            })?;
+        let configuration = self
+            .device
+            .configurations()
+            .find(|configuration| configuration.configuration_value() == configuration_value)?;
 
-        for interface in configuration_descriptor.interfaces() {
-            for interface_descriptor in interface.descriptors() {
-                if interface_descriptor.setting_number() != alternate_setting_index {
-                    continue;
-                }
-
-                for endpoint_descriptor in interface_descriptor.endpoint_descriptors() {
-                    let Some(buffer) = endpoint_descriptor.extra() else {
-                        continue;
-                    };
-
-                    if endpoint_descriptor.address() == endpoint_address
-                        && endpoint_descriptor.transfer_type() == TransferType::Isochronous
-                        && buffer[1] == DT_SS_ENDPOINT_COMPANION
+        for interface in configuration.interface_alt_settings() {
+            if interface.alternate_setting() == alternate_setting_index {
+                for endpoint in interface.endpoints() {
+                    if endpoint.address() == endpoint_address
+                        && endpoint.transfer_type() == TransferType::Isochronous
                     {
-                        return Some(u16::from_buffer(&buffer[4..6]));
+                        for buffer in endpoint.descriptors() {
+                            if buffer.len() >= 6 && buffer[1] == DT_SS_ENDPOINT_COMPANION {
+                                return Some(u16::from_buffer(&buffer[4..6]));
+                            }
+                        }
                     }
                 }
             }
@@ -224,39 +240,38 @@ impl<C: UsbContext> Opened<C> {
         None
     }
 
-    fn set_ir_state(&mut self, enabled: bool) -> Result<(), Error> {
-        Ok(self
-            .device_handle
-            .set_alternate_setting(InterfaceId::Ir as u8, enabled as u8)?)
+    async fn set_ir_state(&mut self, enabled: bool) -> Result<(), Error> {
+        Ok(self.ir_interface.set_alt_setting(enabled as u8).await?)
     }
 
-    fn set_video_transfer_function_state(&self, enabled: bool) -> Result<(), Error> {
-        self.set_feature_function_suspend(!enabled, !enabled)
+    async fn set_video_transfer_function_state(&self, enabled: bool) -> Result<(), Error> {
+        self.set_feature_function_suspend(!enabled, !enabled).await
     }
 }
 
-impl<C: UsbContext> Device<Opened<C>> {
+impl Device<Opened> {
     pub fn running(&self) -> bool {
         self.inner.running
     }
 
     /// Start data processing with both color and depth streams.
     /// All above configuration must only be called before start() or after stop().
-    pub fn start(&mut self) -> Result<(), Error> {
+    pub async fn start(&mut self) -> Result<(), Error> {
         if self.inner.running {
             return Ok(());
         }
 
         self.inner.running = true;
 
-        self.inner.set_video_transfer_function_state(true)?;
+        self.inner.set_video_transfer_function_state(true).await?;
 
         let usb_serial_number = self
             .inner
-            .device_handle
-            .read_serial_number_string_ascii(&self.inner.device.device_descriptor()?)
-            .unwrap_or_default();
-        let device_protocol_serial_number = self.get_serial_number()?;
+            .device_info
+            .serial_number()
+            .unwrap_or_default()
+            .to_string();
+        let device_protocol_serial_number = self.get_serial_number().await?;
 
         if device_protocol_serial_number != usb_serial_number {
             return Err(Error::SerialNumber(
@@ -268,35 +283,41 @@ impl<C: UsbContext> Device<Opened<C>> {
         self.inner.ir_params = IrParams::try_from(
             self.inner
                 .command_transaction
-                .execute(read_depth_params_command())?
+                .execute(read_depth_params_command())
+                .await?
                 .as_slice(),
         )?;
         self.inner.color_params = ColorParams::try_from(
             self.inner
                 .command_transaction
-                .execute(read_color_params_command())?
+                .execute(read_color_params_command())
+                .await?
                 .as_slice(),
         )?;
         self.inner.p0_tables = P0Tables::try_from(
             self.inner
                 .command_transaction
-                .execute(read_p0_tables_command())?
+                .execute(read_p0_tables_command())
+                .await?
                 .as_slice(),
         )?;
 
         self.inner
             .command_transaction
-            .execute(set_mode_command(true, 0x00640064))?;
+            .execute(set_mode_command(true, 0x00640064))
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(false, 0))?;
+            .execute(set_mode_command(false, 0))
+            .await?;
 
         for _ in 0..50 {
             if u32::from_buffer(
                 &self
                     .inner
                     .command_transaction
-                    .execute(read_status_command(0x090000))?,
+                    .execute(read_status_command(0x090000))
+                    .await?,
             ) & 1
                 != 0
             {
@@ -307,34 +328,35 @@ impl<C: UsbContext> Device<Opened<C>> {
 
         self.inner
             .command_transaction
-            .execute(init_streams_command())?;
-        self.inner.set_ir_state(true)?;
+            .execute(init_streams_command())
+            .await?;
+        self.inner.set_ir_state(true).await?;
         self.inner
             .command_transaction
-            .execute(set_stream_state_command(true))?;
+            .execute(set_stream_state_command(true))
+            .await?;
 
         Ok(())
     }
 
-    pub fn poll_color_packet(&mut self) -> Result<Option<ColorPacket>, Error> {
+    pub async fn poll_color_packet(&mut self) -> Result<Option<ColorPacket>, Error> {
         if !self.inner.running {
             return Err(Error::OnlyWhileRunning("Reading color frame"));
         }
 
         for _ in 0..self.inner.packet_params.color_num_transfers {
-            self.inner.color_transfer_pool.submit_bulk(
-                COLOR_IN_ENDPOINT,
-                Vec::with_capacity(self.inner.packet_params.color_transfer_size),
-            )?;
+            self.inner.color_queue.submit(RequestBuffer::new(
+                self.inner.packet_params.color_transfer_size,
+            ));
         }
 
         let mut result = None;
 
-        while self.inner.color_transfer_pool.pending() {
+        while self.inner.color_queue.pending() > 0 {
             if let Some(packet) = self
                 .inner
                 .color_stream_parser
-                .parse(self.inner.color_transfer_pool.poll(TIMEOUT)?)
+                .parse(self.inner.color_queue.next_complete().await.into_result()?)
             {
                 result = Some(packet);
             }
@@ -343,42 +365,37 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(result)
     }
 
-    pub fn poll_depth_packet(&mut self) -> Result<Option<DepthPacket>, Error> {
+    pub async fn poll_depth_packet(&mut self) -> Result<Option<DepthPacket>, Error> {
         if !self.inner.running {
             return Err(Error::OnlyWhileRunning("Reading depth frame"));
         }
 
         for _ in 0..self.inner.packet_params.ir_num_transfers {
-            self.inner.depth_transfer_pool.submit_iso(
-                IR_IN_ENDPOINT,
-                Vec::with_capacity(
-                    self.inner.packet_params.ir_packets_per_transfer as usize
-                        * self.inner.packet_params.max_iso_packet_size as usize,
-                ),
-                self.inner.packet_params.ir_packets_per_transfer,
-            )?;
+            self.inner.ir_queue.submit(RequestIsochronousBuffer::new(
+                self.inner.packet_params.max_iso_packet_size as usize,
+                self.inner.packet_params.ir_packets_per_transfer as usize,
+            ));
         }
 
         let mut result = None;
 
-        while self.inner.depth_transfer_pool.pending() {
-            if let Some(packet) = self
-                .inner
-                .depth_stream_parser
-                .parse(self.inner.depth_transfer_pool.poll(TIMEOUT)?)
-            {
-                result = Some(packet);
+        while self.inner.ir_queue.pending() > 0 {
+            for iso_packet in self.inner.ir_queue.next_complete().await.into_result()? {
+                if let Some(packet) = self.inner.depth_stream_parser.parse(iso_packet) {
+                    result = Some(packet);
+                }
             }
         }
 
         Ok(result)
     }
 
-    pub fn get_firware_versions(&mut self) -> Result<Vec<FirwareVersion>, Error> {
+    pub async fn get_firware_versions(&mut self) -> Result<Vec<FirwareVersion>, Error> {
         let buffer = self
             .inner
             .command_transaction
-            .execute(read_firware_versions_command())?;
+            .execute(read_firware_versions_command())
+            .await?;
         const FIRWARE_VERSION_SIZE: usize = 16;
         let mut versions = Vec::new();
 
@@ -391,11 +408,12 @@ impl<C: UsbContext> Device<Opened<C>> {
         Ok(versions)
     }
 
-    pub fn get_serial_number(&mut self) -> Result<String, Error> {
+    pub async fn get_serial_number(&mut self) -> Result<String, Error> {
         let mut buffer = self
             .inner
             .command_transaction
-            .execute(read_serial_number_command())?;
+            .execute(read_serial_number_command())
+            .await?;
 
         buffer.retain(|char| *char != 0);
 
@@ -423,17 +441,23 @@ impl<C: UsbContext> Device<Opened<C>> {
     /// # Arguments
     ///
     /// * `exposure_compensation` - Exposure compensation, range [-2.0, 2.0]
-    pub fn set_color_auto_exposure(&mut self, exposure_compensation: f32) -> Result<(), Error> {
+    pub async fn set_color_auto_exposure(
+        &mut self,
+        exposure_compensation: f32,
+    ) -> Result<(), Error> {
         if !self.inner.running {
             return Err(Error::OnlyWhileRunning("Setting auto exposure"));
         }
 
-        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)?;
-        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 0)?;
+        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)
+            .await?;
+        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 0)
+            .await?;
         self.set_color_setting(
             ColorSettingCommandType::SetExposureCompensation,
             exposure_compensation.clamp(-2.0, 2.0).to_bits(),
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -456,7 +480,7 @@ impl<C: UsbContext> Device<Opened<C>> {
     /// # Arguments
     ///
     /// * `pseudo_exposure_time` - Pseudo-exposure time in milliseconds, range (0.0, 66.0+]
-    pub fn set_color_semi_auto_exposure(
+    pub async fn set_color_semi_auto_exposure(
         &mut self,
         pseudo_exposure_time: Duration,
     ) -> Result<(), Error> {
@@ -464,14 +488,17 @@ impl<C: UsbContext> Device<Opened<C>> {
             return Err(Error::OnlyWhileRunning("Setting semi-auto exposure"));
         }
 
-        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)?;
-        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 3)?;
+        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)
+            .await?;
+        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 3)
+            .await?;
         self.set_color_setting(
             ColorSettingCommandType::SetExposureTimeMs,
             ((pseudo_exposure_time.as_secs_f64() / 1000.0) as f32)
                 .clamp(0.0, 66.0)
                 .to_bits(),
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -482,7 +509,7 @@ impl<C: UsbContext> Device<Opened<C>> {
     ///
     /// * `integration_time` - True shutter time in milliseconds, range (0.0, 66.0]
     /// * `analog_gain` - Analog gain, range [1.0, 4.0]
-    pub fn set_color_manual_exposure(
+    pub async fn set_color_manual_exposure(
         &mut self,
         integration_time: Duration,
         analog_gain: f32,
@@ -491,41 +518,50 @@ impl<C: UsbContext> Device<Opened<C>> {
             return Err(Error::OnlyWhileRunning("Setting manual exposure"));
         }
 
-        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)?;
-        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 4)?;
+        self.set_color_setting(ColorSettingCommandType::SetAcs, 0)
+            .await?;
+        self.set_color_setting(ColorSettingCommandType::SetExposureMode, 4)
+            .await?;
         self.set_color_setting(
             ColorSettingCommandType::SetIntegrationTime,
             ((integration_time.as_secs_f64() / 1000.0) as f32)
                 .clamp(0.0, 66.0)
                 .to_bits(),
-        )?;
+        )
+        .await?;
         self.set_color_setting(
             ColorSettingCommandType::SetAnalogGain,
             analog_gain.clamp(1.0, 4.0).to_bits(),
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
 
     /// Set an individual setting value of the color camera.
-    pub fn set_color_setting(
+    pub async fn set_color_setting(
         &mut self,
         command: ColorSettingCommandType,
         value: u32,
     ) -> Result<(), Error> {
         self.inner
             .command_transaction
-            .execute(color_setting_command(command, value))?;
+            .execute(color_setting_command(command, value))
+            .await?;
 
         Ok(())
     }
 
     /// get an individual setting value of the color camera.
-    pub fn get_color_setting(&mut self, command: ColorSettingCommandType) -> Result<u32, Error> {
+    pub async fn get_color_setting(
+        &mut self,
+        command: ColorSettingCommandType,
+    ) -> Result<u32, Error> {
         let bytes = self
             .inner
             .command_transaction
-            .execute(color_setting_command(command, 0))?;
+            .execute(color_setting_command(command, 0))
+            .await?;
 
         Ok(ColorSettingResponse::read_unaligned(&bytes)?.data)
     }
@@ -535,78 +571,94 @@ impl<C: UsbContext> Device<Opened<C>> {
     /// # Arguments
     ///
     /// * `led_settings` - Settings for a single LED.
-    pub fn set_led_status(&mut self, led_settings: LedSettings) -> Result<(), Error> {
+    pub async fn set_led_status(&mut self, led_settings: LedSettings) -> Result<(), Error> {
         self.inner
             .command_transaction
-            .execute(led_setting_command(led_settings))?;
+            .execute(led_setting_command(led_settings))
+            .await?;
 
         Ok(())
     }
 
     /// Stop data processing.
-    pub fn stop(&mut self) -> Result<(), Error> {
+    pub async fn stop(&mut self) -> Result<(), Error> {
         if !self.inner.running {
             return Ok(());
         }
 
         self.inner.running = false;
 
-        self.inner.set_ir_state(false)?;
+        self.inner.set_ir_state(false).await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(true, 0x00640064))?;
+            .execute(set_mode_command(true, 0x00640064))
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(false, 0))?;
-        self.inner.command_transaction.execute(stop_command())?;
+            .execute(set_mode_command(false, 0))
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_stream_state_command(false))?;
+            .execute(stop_command())
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(true, 0))?;
+            .execute(set_stream_state_command(false))
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(false, 0))?;
+            .execute(set_mode_command(true, 0))
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(true, 0))?;
+            .execute(set_mode_command(false, 0))
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(false, 0))?;
-        self.inner.set_video_transfer_function_state(false)
+            .execute(set_mode_command(true, 0))
+            .await?;
+        self.inner
+            .command_transaction
+            .execute(set_mode_command(false, 0))
+            .await?;
+        self.inner.set_video_transfer_function_state(false).await
     }
 
     /// Shut down the device.
-    pub fn close(mut self) -> Result<Device<Closed<C>>, Error> {
-        self.stop()?;
+    pub async fn close(mut self) -> Result<Device<Closed>, Error> {
+        self.stop().await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(true, 0x00640064))?;
+            .execute(set_mode_command(true, 0x00640064))
+            .await?;
         self.inner
             .command_transaction
-            .execute(set_mode_command(false, 0))?;
-        self.inner.command_transaction.execute(shutdown_command())?;
+            .execute(set_mode_command(false, 0))
+            .await?;
+        self.inner
+            .command_transaction
+            .execute(shutdown_command())
+            .await?;
 
         Ok(Device {
             inner: Closed {
-                device: self.inner.device,
+                device_info: self.inner.device_info,
             },
         })
     }
 }
 
-impl<C: UsbContext> DeviceInfo for Device<Opened<C>> {
+impl DeviceInfo for Device<Opened> {
     fn id(&self) -> DeviceId {
         DeviceId {
-            bus: self.inner.device.bus_number(),
-            address: self.inner.device.address(),
+            bus: self.inner.device_info.busnum(),
+            address: self.inner.device_info.device_address(),
         }
     }
 }
 
-impl<C: UsbContext> Debug for Device<Opened<C>> {
+impl Debug for Device<Opened> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.device.fmt(f)
+        self.inner.device_info.fmt(f)
     }
 }
