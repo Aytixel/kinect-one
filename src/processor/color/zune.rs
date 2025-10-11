@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, io::Cursor};
 
 use zune_jpeg::{
     zune_core::{colorspace, options::DecoderOptions},
@@ -46,7 +46,8 @@ impl ZuneColorProcessor {
 
 impl ProcessorTrait<ColorPacket, ColorFrame> for ZuneColorProcessor {
     async fn process(&self, input: ColorPacket) -> Result<ColorFrame, Box<dyn Error>> {
-        let mut decoder = JpegDecoder::new(input.jpeg_buffer);
+        let reader = Cursor::new(input.jpeg_buffer);
+        let mut decoder = JpegDecoder::new(reader);
 
         decoder.set_options(
             DecoderOptions::new_fast()
@@ -60,7 +61,7 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for ZuneColorProcessor {
 
         Ok(ColorFrame {
             color_space: decoder
-                .get_output_colorspace()
+                .output_colorspace()
                 .expect("Expected colorspace")
                 .into(),
             width: dimensions.0,
