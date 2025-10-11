@@ -294,25 +294,32 @@ impl Registration {
     pub fn depth_to_color(&self, mx: f32, my: f32) -> (f32, f32) {
         let mx = (mx - self.ir_params.cx) * DEPTH_Q;
         let my = (my - self.ir_params.cy) * DEPTH_Q;
+        let mxy = mx * my;
+        let mx2 = mx * mx;
+        let my2 = my * my;
+        let mx3 = mx * mx2;
+        let my3 = my * my2;
+        let mx2y = mx2 * my;
+        let mxy2 = mx * my2;
 
-        let wx = (mx * mx * mx * self.color_params.mx_x3y0)
-            + (my * my * my * self.color_params.mx_x0y3)
-            + (mx * mx * my * self.color_params.mx_x2y1)
-            + (my * my * mx * self.color_params.mx_x1y2)
-            + (mx * mx * self.color_params.mx_x2y0)
-            + (my * my * self.color_params.mx_x0y2)
-            + (mx * my * self.color_params.mx_x1y1)
+        let wx = (mx3 * self.color_params.mx_x3y0)
+            + (my3 * self.color_params.mx_x0y3)
+            + (mx2y * self.color_params.mx_x2y1)
+            + (mxy2 * self.color_params.mx_x1y2)
+            + (mx2 * self.color_params.mx_x2y0)
+            + (my2 * self.color_params.mx_x0y2)
+            + (mxy * self.color_params.mx_x1y1)
             + (mx * self.color_params.mx_x1y0)
             + (my * self.color_params.mx_x0y1)
             + (self.color_params.mx_x0y0);
 
-        let wy = (mx * mx * mx * self.color_params.my_x3y0)
-            + (my * my * my * self.color_params.my_x0y3)
-            + (mx * mx * my * self.color_params.my_x2y1)
-            + (my * my * mx * self.color_params.my_x1y2)
-            + (mx * mx * self.color_params.my_x2y0)
-            + (my * my * self.color_params.my_x0y2)
-            + (mx * my * self.color_params.my_x1y1)
+        let wy = (mx3 * self.color_params.my_x3y0)
+            + (my3 * self.color_params.my_x0y3)
+            + (mx2y * self.color_params.my_x2y1)
+            + (mxy2 * self.color_params.my_x1y2)
+            + (mx2 * self.color_params.my_x2y0)
+            + (my2 * self.color_params.my_x0y2)
+            + (mxy * self.color_params.my_x1y1)
             + (mx * self.color_params.my_x1y0)
             + (my * self.color_params.my_x0y1)
             + (self.color_params.my_x0y0);
