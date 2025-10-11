@@ -142,10 +142,12 @@ impl CpuDepthProcessor {
         p0_table: &Mat<u16>,
         trig_table: &mut [Vec<f32>; 6],
     ) {
+        let p0_coef = -0.000031 * PI;
+
         for y in 0..DEPTH_HEIGHT {
             for x in 0..DEPTH_WIDTH {
                 let offset = y * DEPTH_WIDTH + x;
-                let p0 = -(p0_table.get(x, y) as f32) * 0.000031 * PI;
+                let p0 = (p0_table.get(x, y) as f32) * p0_coef;
 
                 let tmp0 = p0 + phase_in_rad[0];
                 let tmp1 = p0 + phase_in_rad[1];
@@ -253,31 +255,33 @@ impl CpuDepthProcessor {
         }
 
         let mut bilateral_max_edge_test = true;
-        let mut offset = 0;
+        let threshold = (self.params.joint_bilateral_ab_threshold.powi(2)
+            / self.params.ab_multiplier.powi(2))
+        .max(0.0);
 
-        for _ in 0..3 {
-            let norm2 = m_ptr[offset].powi(2) + m_ptr[offset + 1].powi(2);
+        for offset in 0..3 {
+            let offset = offset * 3;
+            let m_ptr_0 = m_ptr[offset];
+            let m_ptr_1 = m_ptr[offset + 1];
+            let norm2 = m_ptr_0.powi(2) + m_ptr_1.powi(2);
             let inv_norm = if norm2 > 0.0 {
                 norm2.sqrt().recip()
             } else {
                 f32::INFINITY
             };
 
-            let m_norm_x = m_ptr[offset] * inv_norm;
-            let m_norm_y = m_ptr[offset + 1] * inv_norm;
+            let m_norm_x = m_ptr_0 * inv_norm;
+            let m_norm_y = m_ptr_1 * inv_norm;
 
-            let threshold = (self.params.joint_bilateral_ab_threshold.powi(2)
-                / self.params.ab_multiplier.powi(2))
-            .max(0.0);
             let joint_bilateral_exp = if norm2 >= threshold {
                 self.params.joint_bilateral_exp
             } else {
                 0.0
             };
 
-            let mut weight_acc = 0.0;
-            let mut weighted_m_acc_x = 0.0;
-            let mut weighted_m_acc_y = 0.0;
+            let mut weight_acc = self.params.gaussian_kernel[4];
+            let mut weighted_m_acc_x = self.params.gaussian_kernel[4] * m_ptr_0;
+            let mut weighted_m_acc_y = self.params.gaussian_kernel[4] * m_ptr_1;
             let mut dist_acc = 0.0;
 
             let bilateral_exp_factor = -1.442695 * joint_bilateral_exp;
@@ -286,38 +290,35 @@ impl CpuDepthProcessor {
 
             for yi in -1..=1 {
                 for xi in -1..=1 {
-                    let kernel_weight = self.params.gaussian_kernel[j];
-
                     if yi == 0 && xi == 0 {
-                        weight_acc += kernel_weight;
-
-                        weighted_m_acc_x += kernel_weight * m_ptr[offset];
-                        weighted_m_acc_y += kernel_weight * m_ptr[offset + 1];
                         continue;
                     }
 
                     let other_m_ptr = m.get((x as isize + xi) as usize, (y as isize + yi) as usize);
-                    let other_norm2 = other_m_ptr[offset].powi(2) + other_m_ptr[offset + 1].powi(2);
+                    let other_m_0 = other_m_ptr[offset];
+                    let other_m_1 = other_m_ptr[offset + 1];
+                    let other_norm2 = other_m_0.powi(2) + other_m_1.powi(2);
                     let other_inv_norm = if other_norm2 > 0.0 {
                         other_norm2.sqrt().recip()
                     } else {
                         f32::INFINITY
                     };
 
-                    let dist = (-(other_m_ptr[offset] * other_inv_norm * m_norm_x
-                        + other_m_ptr[offset + 1] * other_inv_norm * m_norm_y)
-                        + 1.0)
-                        * 0.5;
-
                     let mut weight = 0.0;
 
                     if other_norm2 >= threshold {
-                        weight = kernel_weight * (bilateral_exp_factor * dist).exp();
+                        let dist = (-(other_m_0 * other_inv_norm * m_norm_x
+                            + other_m_1 * other_inv_norm * m_norm_y)
+                            + 1.0)
+                            * 0.5;
+
+                        weight =
+                            self.params.gaussian_kernel[j] * (bilateral_exp_factor * dist).exp();
                         dist_acc += dist;
                     }
 
-                    weighted_m_acc_x += weight * other_m_ptr[offset];
-                    weighted_m_acc_y += weight * other_m_ptr[offset + 1];
+                    weighted_m_acc_x += weight * other_m_0;
+                    weighted_m_acc_y += weight * other_m_1;
 
                     weight_acc += weight;
 
@@ -336,8 +337,6 @@ impl CpuDepthProcessor {
             m_out[offset] = weighted_m_acc_x * weight_recip;
             m_out[offset + 1] = weighted_m_acc_y * weight_recip;
             m_out[offset + 2] = m_ptr[offset + 2];
-
-            offset += 3;
         }
 
         bilateral_max_edge_test
