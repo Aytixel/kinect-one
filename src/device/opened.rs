@@ -5,11 +5,9 @@ use std::{
 };
 
 use nusb::{
-    transfer::{
-        ControlOut, ControlType, Queue, Recipient, RequestBuffer, RequestIsochronousBuffer,
-        TransferType,
-    },
-    Interface,
+    descriptors::TransferType,
+    transfer::{Bulk, ControlOut, ControlType, In, Recipient},
+    Endpoint, Interface, IsoEndpoint,
 };
 
 use crate::{
@@ -26,7 +24,7 @@ use crate::{
         ColorPacket, DepthPacket,
     },
     settings::{ColorSettingCommandType, LedSettings, PacketParams},
-    Error, FromBuffer, ReadUnaligned,
+    Error, FromBuffer, ReadUnaligned, USB_TIMEOUT,
 };
 
 use super::{Closed, Device, DeviceId, DeviceInfo};
@@ -75,9 +73,9 @@ pub struct Opened {
     ir_params: IrParams,
     p0_tables: P0Tables,
     packet_params: PacketParams,
-    color_queue: Queue<RequestBuffer>,
+    color_endpoint: Endpoint<Bulk, In>,
     color_stream_parser: ColorStreamParser,
-    ir_queue: Queue<RequestIsochronousBuffer>,
+    ir_endpoint: Option<IsoEndpoint<In>>,
     depth_stream_parser: DepthStreamParser,
     running: bool,
 }
@@ -97,17 +95,20 @@ impl Opened {
 
         // set isochronous delay
         control_and_color_interface
-            .control_out(ControlOut {
-                control_type: ControlType::Standard,
-                recipient: Recipient::Device,
-                request: SET_ISOCH_DELAY,
-                value: 40,
-                index: 0,
-                data: &[],
-            })
-            .await
-            .into_result()?;
+            .control_out(
+                ControlOut {
+                    control_type: ControlType::Standard,
+                    recipient: Recipient::Device,
+                    request: SET_ISOCH_DELAY,
+                    value: 40,
+                    index: 0,
+                    data: &[],
+                },
+                USB_TIMEOUT,
+            )
+            .await?;
 
+        let packet_params: PacketParams = Default::default();
         let mut opened_device = Self {
             command_transaction: CommandTransaction::new(
                 CONTROL_IN_ENDPOINT,
@@ -117,12 +118,12 @@ impl Opened {
             color_params: Default::default(),
             ir_params: Default::default(),
             p0_tables: Default::default(),
-            packet_params: Default::default(),
-            color_queue: control_and_color_interface.bulk_in_queue(COLOR_IN_ENDPOINT),
+            color_endpoint: control_and_color_interface.endpoint(COLOR_IN_ENDPOINT)?,
             color_stream_parser: ColorStreamParser::new(),
-            ir_queue: ir_interface.isochronous_in_queue(IR_IN_ENDPOINT),
+            ir_endpoint: None,
             depth_stream_parser: DepthStreamParser::new(),
             running: false,
+            packet_params,
             control_and_color_interface,
             ir_interface,
             device_info,
@@ -157,32 +158,36 @@ impl Opened {
 
     async fn set_sel(&self, data: &[u8]) -> Result<(), Error> {
         self.control_and_color_interface
-            .control_out(ControlOut {
-                control_type: ControlType::Standard,
-                recipient: Recipient::Device,
-                request: REQUEST_SET_SEL,
-                value: 0,
-                index: 0,
-                data,
-            })
-            .await
-            .into_result()?;
+            .control_out(
+                ControlOut {
+                    control_type: ControlType::Standard,
+                    recipient: Recipient::Device,
+                    request: REQUEST_SET_SEL,
+                    value: 0,
+                    index: 0,
+                    data,
+                },
+                USB_TIMEOUT,
+            )
+            .await?;
 
         Ok(())
     }
 
     async fn set_feature(&self, feature: Feature) -> Result<(), Error> {
         self.control_and_color_interface
-            .control_out(ControlOut {
-                control_type: ControlType::Standard,
-                recipient: feature.recipient(),
-                request: REQUEST_SET_FEATURE,
-                value: feature as u16,
-                index: 0,
-                data: &[],
-            })
-            .await
-            .into_result()?;
+            .control_out(
+                ControlOut {
+                    control_type: ControlType::Standard,
+                    recipient: feature.recipient(),
+                    request: REQUEST_SET_FEATURE,
+                    value: feature as u16,
+                    index: 0,
+                    data: &[],
+                },
+                USB_TIMEOUT,
+            )
+            .await?;
 
         Ok(())
     }
@@ -196,16 +201,18 @@ impl Opened {
         let suspend_options = (low_power_suspend as u16) + ((function_remote_wake as u16) << 1);
 
         self.control_and_color_interface
-            .control_out(ControlOut {
-                control_type: ControlType::Standard,
-                recipient: feature.recipient(),
-                request: REQUEST_SET_FEATURE,
-                value: feature as u16,
-                index: suspend_options << 8 | 0,
-                data: &[],
-            })
-            .await
-            .into_result()?;
+            .control_out(
+                ControlOut {
+                    control_type: ControlType::Standard,
+                    recipient: feature.recipient(),
+                    request: REQUEST_SET_FEATURE,
+                    value: feature as u16,
+                    index: suspend_options << 8 | 0,
+                    data: &[],
+                },
+                USB_TIMEOUT,
+            )
+            .await?;
 
         Ok(())
     }
@@ -241,7 +248,20 @@ impl Opened {
     }
 
     async fn set_ir_state(&mut self, enabled: bool) -> Result<(), Error> {
-        Ok(self.ir_interface.set_alt_setting(enabled as u8).await?)
+        if !enabled {
+            self.ir_endpoint = None;
+        }
+
+        self.ir_interface.set_alt_setting(enabled as u8).await?;
+
+        if enabled {
+            self.ir_endpoint = Some(self.ir_interface.iso_endpoint(
+                IR_IN_ENDPOINT,
+                self.packet_params.ir_packets_per_transfer as usize,
+            )?);
+        }
+
+        Ok(())
     }
 
     async fn set_video_transfer_function_state(&self, enabled: bool) -> Result<(), Error> {
@@ -345,21 +365,21 @@ impl Device<Opened> {
         }
 
         for _ in 0..self.inner.packet_params.color_num_transfers {
-            self.inner.color_queue.submit(RequestBuffer::new(
-                self.inner.packet_params.color_transfer_size,
-            ));
+            self.inner.color_endpoint.submit(
+                self.inner
+                    .color_endpoint
+                    .allocate(self.inner.packet_params.color_transfer_size as usize),
+            );
         }
 
         let mut result = None;
 
-        while self.inner.color_queue.pending() > 0 {
-            if let Some(packet) = self
-                .inner
-                .color_stream_parser
-                .parse(self.inner.color_queue.next_complete().await.into_result()?)
-            {
-                result = Some(packet);
-            }
+        while self.inner.color_endpoint.pending() > 0 {
+            let packet = self.inner.color_endpoint.next_complete().await;
+
+            packet.status?;
+
+            result = result.or(self.inner.color_stream_parser.parse(packet.buffer.to_vec()));
         }
 
         Ok(result)
@@ -370,20 +390,31 @@ impl Device<Opened> {
             return Err(Error::OnlyWhileRunning("Reading depth frame"));
         }
 
+        let Some(ir_endpoint) = self.inner.ir_endpoint.as_mut() else {
+            return Ok(None);
+        };
+
         for _ in 0..self.inner.packet_params.ir_num_transfers {
-            self.inner.ir_queue.submit(RequestIsochronousBuffer::new(
+            ir_endpoint.submit(
+                ir_endpoint.allocate(
+                    self.inner.packet_params.max_iso_packet_size as usize
+                        * self.inner.packet_params.ir_packets_per_transfer as usize,
+                ),
                 self.inner.packet_params.max_iso_packet_size as usize,
-                self.inner.packet_params.ir_packets_per_transfer as usize,
-            ));
+            );
         }
 
         let mut result = None;
 
-        while self.inner.ir_queue.pending() > 0 {
-            for iso_packet in self.inner.ir_queue.next_complete().await.into_result()? {
-                if let Some(packet) = self.inner.depth_stream_parser.parse(iso_packet) {
-                    result = Some(packet);
-                }
+        while ir_endpoint.pending() > 0 {
+            let iso_packet = ir_endpoint.next_complete().await;
+
+            iso_packet.status?;
+
+            for packet in iso_packet.successful_packets() {
+                result = result.or(self.inner.depth_stream_parser.parse(
+                    iso_packet.buffer[packet.offset..packet.offset + packet.actual_length].to_vec(),
+                ));
             }
         }
 

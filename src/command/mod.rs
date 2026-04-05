@@ -3,14 +3,15 @@ mod response;
 
 pub use commands::*;
 use nusb::{
-    transfer::{RequestBuffer, TransferError},
+    transfer::{Bulk, In, Out},
     Interface,
 };
 pub use response::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{Error, FromBuffer};
+use crate::{Error, FromBuffer, USB_TIMEOUT};
 
-const COMPLETE_RESPONSE_LENGTH: usize = 16;
+const COMPLETE_RESPONSE_LENGTH: u32 = 16;
 const COMPLETE_RESPONSE_MAGIC: u32 = 0x0a6fe000;
 
 #[derive(Clone)]
@@ -45,7 +46,7 @@ impl CommandTransaction {
 
         if MAX_RESPONSE_LENGTH > 0 {
             result = self
-                .receive(MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH)
+                .receive::<MAX_RESPONSE_LENGTH, MIN_RESPONSE_LENGTH>()
                 .await?;
 
             self.check_complete_response(&result, sequence)
@@ -53,10 +54,7 @@ impl CommandTransaction {
         }
 
         let complete_result = self
-            .receive(
-                COMPLETE_RESPONSE_LENGTH as u32,
-                COMPLETE_RESPONSE_LENGTH as u32,
-            )
+            .receive::<COMPLETE_RESPONSE_LENGTH, COMPLETE_RESPONSE_LENGTH>()
             .await?;
 
         self.check_complete_response(&complete_result, sequence)?;
@@ -80,55 +78,38 @@ impl CommandTransaction {
             0
         };
 
-        let length = match self
+        let mut writer = self
             .interface
-            .bulk_out(self.out_endpoint, command.as_bytes(sequence))
-            .await
-            .into_result()
-        {
-            Ok(response) => response.actual_length(),
-            Err(error) => {
-                if let TransferError::Stall = error {
-                    self.interface.clear_halt(self.out_endpoint).await?;
-                }
+            .endpoint::<Bulk, Out>(self.out_endpoint)?
+            .writer(command.size())
+            .with_write_timeout(USB_TIMEOUT);
 
-                return Err(error.into());
-            }
-        };
+        writer.write_all(&command.as_bytes(sequence)).await?;
+        writer.flush_end_async().await?;
 
-        if length != command.size() {
-            Err(Error::Send(length, command.size()))
-        } else {
-            Ok(sequence)
-        }
+        Ok(sequence)
     }
 
-    async fn receive(&self, max_length: u32, min_length: u32) -> Result<Vec<u8>, Error> {
-        let response = match self
+    async fn receive<const MAX_RESPONSE_LENGTH: u32, const MIN_RESPONSE_LENGTH: u32>(
+        &mut self,
+    ) -> Result<Vec<u8>, Error> {
+        let mut reader = self
             .interface
-            .bulk_in(self.in_endpoint, RequestBuffer::new(max_length as usize))
-            .await
-            .into_result()
-        {
-            Ok(response) => response,
-            Err(error) => {
-                if let TransferError::Stall = error {
-                    self.interface.clear_halt(self.in_endpoint).await?;
-                }
+            .endpoint::<Bulk, In>(self.in_endpoint)?
+            .reader(MAX_RESPONSE_LENGTH as usize)
+            .with_read_timeout(USB_TIMEOUT);
+        let mut response = vec![0; MAX_RESPONSE_LENGTH as usize];
+        let length = reader.read(&mut response).await?;
 
-                return Err(error.into());
-            }
-        };
-
-        if response.len() < min_length as usize {
-            Err(Error::Receive(response.len(), min_length))
+        if length < MIN_RESPONSE_LENGTH as usize || length > MAX_RESPONSE_LENGTH as usize {
+            Err(Error::Receive(response.len(), MIN_RESPONSE_LENGTH))
         } else {
             Ok(response)
         }
     }
 
     fn check_complete_response(&self, result: &[u8], sequence: u32) -> Result<(), Error> {
-        if result.len() == COMPLETE_RESPONSE_LENGTH {
+        if result.len() == COMPLETE_RESPONSE_LENGTH as usize {
             if u32::from_buffer(&result[0..4]) == COMPLETE_RESPONSE_MAGIC {
                 let result_sequence = u32::from_buffer(&result[4..8]);
 

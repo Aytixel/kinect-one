@@ -6,12 +6,14 @@ mod settings;
 pub mod data;
 pub mod processor;
 
-use std::{any::type_name, collections::VecDeque, io, ptr::read_unaligned};
+use std::{any::type_name, collections::VecDeque, io, ptr::read_unaligned, time::Duration};
 
 use packet::{ColorPacket, DepthPacket};
 use thiserror::Error;
 
 pub use device::{Device, DeviceEnumerator, DeviceInfo};
+
+const USB_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const DEPTH_WIDTH: usize = 512;
 pub const DEPTH_HEIGHT: usize = 424;
@@ -57,16 +59,16 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]
-    UsbActiveConfiguration(#[from] nusb::descriptors::ActiveConfigurationError),
+    Usb(#[from] nusb::Error),
+    #[error(transparent)]
+    UsbActiveConfiguration(#[from] nusb::ActiveConfigurationError),
     #[error(transparent)]
     UsbTransfer(#[from] nusb::transfer::TransferError),
     #[error("Processing error: {0}")]
     Processing(Box<dyn std::error::Error>),
     #[error("No Kinect connected")]
     NoDevice,
-    #[error("The number of sent bytes differs, expected {1} got {0}")]
-    Send(usize, usize),
-    #[error("Not enough byte received, expected {1} got {0}")]
+    #[error("Wrong data length received, expected {1} got {0}")]
     Receive(usize, u32),
     #[error("Responded with the wrong sequence number, expected {1} got {0}")]
     InvalidSequence(u32, u32),
