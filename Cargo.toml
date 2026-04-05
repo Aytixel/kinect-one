@@ -8,6 +8,8 @@ thiserror = "2.0.18"
 
 nusb = { git = "https://github.com/FreddyFunk/nusb", branch = "feature/implement-isochronous-transfers-for-linux", features = ["tokio"] }
 
+zenjpeg = { version = "0.8.2", optional = true }
+enough = { version = "0.4.3", optional = true }
 zune-jpeg = { version = "0.5.15", optional = true }
 mozjpeg = { version = "0.10.13", optional = true }
 turbojpeg = { version = "1.4.0", optional = true }
@@ -18,17 +20,19 @@ tokio = { version = "1.51.0", features = ["rt-multi-thread", "macros", "time", "
 
 [features]
 default = [
-    "zune_rgb",
-    "moz_rgb",
-    "turbo_rgb",
+    "zen_color",
+    "zune_color",
+    "moz_color",
+    "turbo_color",
     "cpu_depth",
     "opencl_depth",
     "opencl_kde_depth",
 ]
 
-zune_rgb = ["dep:zune-jpeg"]
-moz_rgb = ["dep:mozjpeg"]
-turbo_rgb = ["dep:turbojpeg"]
+zen_color = ["dep:zenjpeg", "dep:enough"]
+zune_color = ["dep:zune-jpeg"]
+moz_color = ["dep:mozjpeg"]
+turbo_color = ["dep:turbojpeg"]
 
 cpu_depth = []
 opencl_depth = ["dep:ocl"]

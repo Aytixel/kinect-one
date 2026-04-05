@@ -1,17 +1,21 @@
-#[cfg(feature = "moz_rgb")]
+#[cfg(feature = "moz_color")]
 mod moz;
-#[cfg(feature = "turbo_rgb")]
+#[cfg(feature = "turbo_color")]
 mod turbo;
-#[cfg(feature = "zune_rgb")]
+#[cfg(feature = "zen_color")]
+mod zen;
+#[cfg(feature = "zune_color")]
 mod zune;
 
 use std::fmt::{self, Debug};
 
-#[cfg(feature = "moz_rgb")]
+#[cfg(feature = "moz_color")]
 pub use moz::*;
-#[cfg(feature = "turbo_rgb")]
+#[cfg(feature = "turbo_color")]
 pub use turbo::*;
-#[cfg(feature = "zune_rgb")]
+#[cfg(feature = "zen_color")]
+pub use zen::*;
+#[cfg(feature = "zune_color")]
 pub use zune::*;
 
 pub use crate::packet::ColorPacket;
