@@ -1,3 +1,5 @@
+#[cfg(feature = "fev_color")]
+mod fev;
 #[cfg(feature = "moz_color")]
 mod moz;
 #[cfg(feature = "turbo_color")]
@@ -9,6 +11,8 @@ mod zune;
 
 use std::fmt::{self, Debug};
 
+#[cfg(feature = "fev_color")]
+pub use fev::*;
 #[cfg(feature = "moz_color")]
 pub use moz::*;
 #[cfg(feature = "turbo_color")]
