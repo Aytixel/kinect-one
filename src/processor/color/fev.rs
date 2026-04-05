@@ -43,16 +43,16 @@ impl TryInto<PixelFormat> for ColorSpace {
 
 /// FeV (LibVA) color processor
 pub struct FeVColorProcessor {
-    colorspace: PixelFormat,
+    color_space: PixelFormat,
     display: Display,
 }
 
 impl FeVColorProcessor {
-    pub fn new(colorspace: ColorSpace) -> Result<Self, Box<dyn Error>> {
+    pub fn new(color_space: ColorSpace) -> Result<Self, Box<dyn Error>> {
         let display = Display::new(EventLoop::new()?.owned_display_handle())?;
 
         Ok(Self {
-            colorspace: colorspace.try_into()?,
+            color_space: color_space.try_into()?,
             display,
         })
     }
@@ -64,7 +64,7 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for FeVColorProcessor {
             JpegDecodeSession::new(&self.display, COLOR_WIDTH as u16, COLOR_HEIGHT as u16)?;
         let mut image = Image::new(
             &self.display,
-            ImageFormat::new(self.colorspace),
+            ImageFormat::new(self.color_space),
             COLOR_WIDTH as u32,
             COLOR_HEIGHT as u32,
         )?;
@@ -75,16 +75,10 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for FeVColorProcessor {
 
         let mapping = image.map()?;
 
-        Ok(ColorFrame {
-            color_space: self.colorspace.into(),
-            width: COLOR_WIDTH,
-            height: COLOR_HEIGHT,
-            buffer: mapping.to_vec(),
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-            exposure: input.exposure,
-            gain: input.gain,
-            gamma: input.gamma,
-        })
+        Ok(ColorFrame::from_packet(
+            self.color_space.into(),
+            mapping.to_vec(),
+            &input,
+        ))
     }
 }

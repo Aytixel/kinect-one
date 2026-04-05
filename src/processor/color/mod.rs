@@ -23,6 +23,7 @@ pub use zen::*;
 pub use zune::*;
 
 pub use crate::packet::ColorPacket;
+use crate::{COLOR_HEIGHT, COLOR_WIDTH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorSpace {
@@ -70,6 +71,22 @@ pub struct ColorFrame {
     pub exposure: f32,
     pub gain: f32,
     pub gamma: f32,
+}
+
+impl ColorFrame {
+    pub fn from_packet(color_space: ColorSpace, buffer: Vec<u8>, packet: &ColorPacket) -> Self {
+        Self {
+            color_space,
+            width: COLOR_WIDTH,
+            height: COLOR_HEIGHT,
+            buffer,
+            sequence: packet.sequence,
+            timestamp: packet.timestamp,
+            exposure: packet.exposure,
+            gain: packet.gain,
+            gamma: packet.gamma,
+        }
+    }
 }
 
 impl Debug for ColorFrame {

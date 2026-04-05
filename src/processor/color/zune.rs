@@ -43,14 +43,14 @@ impl TryInto<colorspace::ColorSpace> for ColorSpace {
 pub struct ZuneColorProcessor(colorspace::ColorSpace);
 
 impl ZuneColorProcessor {
-    pub fn new(colorspace: ColorSpace) -> Result<Self, Box<dyn Error>> {
-        Ok(Self(colorspace.try_into()?))
+    pub fn new(color_space: ColorSpace) -> Result<Self, Box<dyn Error>> {
+        Ok(Self(color_space.try_into()?))
     }
 }
 
 impl ProcessorTrait<ColorPacket, ColorFrame> for ZuneColorProcessor {
     async fn process(&self, input: ColorPacket) -> Result<ColorFrame, Box<dyn Error>> {
-        let reader = Cursor::new(input.jpeg_buffer);
+        let reader = Cursor::new(&input.jpeg_buffer);
         let mut decoder = JpegDecoder::new(reader);
 
         decoder.set_options(
@@ -61,21 +61,14 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for ZuneColorProcessor {
         );
 
         let buffer = decoder.decode()?;
-        let dimensions = decoder.dimensions().expect("Expected dimensions");
 
-        Ok(ColorFrame {
-            color_space: decoder
+        Ok(ColorFrame::from_packet(
+            decoder
                 .output_colorspace()
                 .expect("Expected colorspace")
                 .into(),
-            width: dimensions.0,
-            height: dimensions.1,
             buffer,
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-            exposure: input.exposure,
-            gain: input.gain,
-            gamma: input.gamma,
-        })
+            &input,
+        ))
     }
 }

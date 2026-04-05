@@ -39,7 +39,7 @@ impl Into<mozjpeg::ColorSpace> for ColorSpace {
 
 /// MozJpeg color processor
 pub struct MozColorProcessor {
-    colorspace: mozjpeg::ColorSpace,
+    color_space: mozjpeg::ColorSpace,
     fancy_upsampling: bool,
     block_smoothing: bool,
     dct_method: DctMethod,
@@ -47,13 +47,13 @@ pub struct MozColorProcessor {
 
 impl MozColorProcessor {
     pub fn new(
-        colorspace: ColorSpace,
+        color_space: ColorSpace,
         fancy_upsampling: bool,
         block_smoothing: bool,
         dct_method: DctMethod,
     ) -> Self {
         Self {
-            colorspace: colorspace.into(),
+            color_space: color_space.into(),
             fancy_upsampling,
             block_smoothing,
             dct_method,
@@ -69,19 +69,13 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for MozColorProcessor {
         decoder.do_block_smoothing(self.block_smoothing);
         decoder.dct_method(self.dct_method);
 
-        let mut decoder = decoder.to_colorspace(self.colorspace)?;
+        let mut decoder = decoder.to_colorspace(self.color_space)?;
         let buffer = decoder.read_scanlines()?;
 
-        Ok(ColorFrame {
-            color_space: decoder.color_space().into(),
-            width: decoder.width(),
-            height: decoder.height(),
+        Ok(ColorFrame::from_packet(
+            decoder.color_space().into(),
             buffer,
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-            exposure: input.exposure,
-            gain: input.gain,
-            gamma: input.gamma,
-        })
+            &input,
+        ))
     }
 }

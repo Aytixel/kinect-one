@@ -56,7 +56,7 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for TurboColorProcessor {
         let mut decompressor = Decompressor::new()?;
         let header = decompressor.read_header(&input.jpeg_buffer)?;
 
-        if let Some(color_space) = self.color_space {
+        let pixels = if let Some(color_space) = self.color_space {
             let pitch = header.width * color_space.size();
             let mut image = Image {
                 pixels: vec![0; header.height * pitch],
@@ -68,17 +68,7 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for TurboColorProcessor {
 
             decompressor.decompress(&input.jpeg_buffer, image.as_deref_mut())?;
 
-            Ok(ColorFrame {
-                color_space: self.color_space.into(),
-                width: image.width,
-                height: image.height,
-                buffer: image.pixels,
-                sequence: input.sequence,
-                timestamp: input.timestamp,
-                exposure: input.exposure,
-                gain: input.gain,
-                gamma: input.gamma,
-            })
+            image.pixels
         } else {
             let align = 4;
             let yuv_pixels_len =
@@ -93,17 +83,13 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for TurboColorProcessor {
 
             decompressor.decompress_to_yuv(&input.jpeg_buffer, yuv_image.as_deref_mut())?;
 
-            Ok(ColorFrame {
-                color_space: self.color_space.into(),
-                width: yuv_image.width,
-                height: yuv_image.height,
-                buffer: yuv_image.pixels,
-                sequence: input.sequence,
-                timestamp: input.timestamp,
-                exposure: input.exposure,
-                gain: input.gain,
-                gamma: input.gamma,
-            })
-        }
+            yuv_image.pixels
+        };
+
+        Ok(ColorFrame::from_packet(
+            self.color_space.into(),
+            pixels,
+            &input,
+        ))
     }
 }

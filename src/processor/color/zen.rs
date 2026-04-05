@@ -44,7 +44,7 @@ pub struct ZenColorProcessor {
 
 impl ZenColorProcessor {
     pub fn new(
-        colorspace: ColorSpace,
+        color_space: ColorSpace,
         chroma_upsampling: ChromaUpsampling,
         dequant_bias: bool,
     ) -> Result<Self, Box<dyn Error>> {
@@ -54,7 +54,7 @@ impl ZenColorProcessor {
                 .preserve_no_metadata()
                 .chroma_upsampling(chroma_upsampling)
                 .dequant_bias(dequant_bias)
-                .output_format(colorspace.try_into()?),
+                .output_format(color_space.try_into()?),
         })
     }
 }
@@ -63,16 +63,10 @@ impl ProcessorTrait<ColorPacket, ColorFrame> for ZenColorProcessor {
     async fn process(&self, input: ColorPacket) -> Result<ColorFrame, Box<dyn Error>> {
         let decoder_result = self.decoder.decode(&input.jpeg_buffer, Unstoppable)?;
 
-        Ok(ColorFrame {
-            color_space: decoder_result.format().into(),
-            width: decoder_result.width() as usize,
-            height: decoder_result.height() as usize,
-            buffer: decoder_result.into_pixels_u8().unwrap_or_default(),
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-            exposure: input.exposure,
-            gain: input.gain,
-            gamma: input.gamma,
-        })
+        Ok(ColorFrame::from_packet(
+            decoder_result.format().into(),
+            decoder_result.into_pixels_u8().unwrap_or_default(),
+            &input,
+        ))
     }
 }
