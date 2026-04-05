@@ -14,6 +14,7 @@ impl From<PixelFormat> for ColorSpace {
             PixelFormat::Rgba => Self::RGBA,
             PixelFormat::Bgr => Self::BGR,
             PixelFormat::Bgra => Self::BGRA,
+            PixelFormat::Bgrx => Self::BGRX,
             _ => Self::Unknown,
         }
     }
@@ -26,9 +27,11 @@ impl TryInto<PixelFormat> for ColorSpace {
         match self {
             ColorSpace::RGB => Ok(PixelFormat::Rgb),
             ColorSpace::RGBA => Ok(PixelFormat::Rgba),
+            ColorSpace::RGBX => Err("RGBX is not supported by TurboJpeg"),
             ColorSpace::YCbCr => Err("YCbCr is not supported by TurboJpeg"),
             ColorSpace::BGR => Ok(PixelFormat::Bgr),
             ColorSpace::BGRA => Ok(PixelFormat::Bgra),
+            ColorSpace::BGRX => Ok(PixelFormat::Bgrx),
             ColorSpace::Unknown => Err("Unknown is not supported by TurboJpeg"),
         }
     }

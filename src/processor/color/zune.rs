@@ -22,15 +22,19 @@ impl From<colorspace::ColorSpace> for ColorSpace {
     }
 }
 
-impl Into<colorspace::ColorSpace> for ColorSpace {
-    fn into(self) -> colorspace::ColorSpace {
+impl TryInto<colorspace::ColorSpace> for ColorSpace {
+    type Error = &'static str;
+
+    fn try_into(self) -> Result<colorspace::ColorSpace, Self::Error> {
         match self {
-            ColorSpace::RGB => colorspace::ColorSpace::RGB,
-            ColorSpace::RGBA => colorspace::ColorSpace::RGBA,
-            ColorSpace::YCbCr => colorspace::ColorSpace::YCbCr,
-            ColorSpace::BGR => colorspace::ColorSpace::BGR,
-            ColorSpace::BGRA => colorspace::ColorSpace::BGRA,
-            ColorSpace::Unknown => colorspace::ColorSpace::Unknown,
+            ColorSpace::RGB => Ok(colorspace::ColorSpace::RGB),
+            ColorSpace::RGBA => Ok(colorspace::ColorSpace::RGBA),
+            ColorSpace::RGBX => Err("RGBX is not supported by ZuneJpeg"),
+            ColorSpace::YCbCr => Ok(colorspace::ColorSpace::YCbCr),
+            ColorSpace::BGR => Ok(colorspace::ColorSpace::BGR),
+            ColorSpace::BGRA => Ok(colorspace::ColorSpace::BGRA),
+            ColorSpace::BGRX => Err("BGRX is not supported by ZuneJpeg"),
+            ColorSpace::Unknown => Ok(colorspace::ColorSpace::Unknown),
         }
     }
 }
@@ -39,8 +43,8 @@ impl Into<colorspace::ColorSpace> for ColorSpace {
 pub struct ZuneColorProcessor(colorspace::ColorSpace);
 
 impl ZuneColorProcessor {
-    pub fn new(colorspace: ColorSpace) -> Self {
-        Self(colorspace.into())
+    pub fn new(colorspace: ColorSpace) -> Result<Self, Box<dyn Error>> {
+        Ok(Self(colorspace.try_into()?))
     }
 }
 

@@ -11,8 +11,10 @@ impl From<Option<PixelFormat>> for ColorSpace {
         match value {
             Some(PixelFormat::RGB) => Self::RGB,
             Some(PixelFormat::RGBA) => Self::RGBA,
+            Some(PixelFormat::RGBX) => Self::RGBX,
             Some(PixelFormat::BGR) => Self::BGR,
             Some(PixelFormat::BGRA) => Self::BGRA,
+            Some(PixelFormat::BGRX) => Self::BGRX,
             None => Self::YCbCr,
             _ => Self::Unknown,
         }
@@ -26,9 +28,11 @@ impl TryInto<Option<PixelFormat>> for ColorSpace {
         match self {
             ColorSpace::RGB => Ok(Some(PixelFormat::RGB)),
             ColorSpace::RGBA => Ok(Some(PixelFormat::RGBA)),
+            ColorSpace::RGBX => Ok(Some(PixelFormat::RGBX)),
             ColorSpace::YCbCr => Ok(None),
             ColorSpace::BGR => Ok(Some(PixelFormat::BGR)),
             ColorSpace::BGRA => Ok(Some(PixelFormat::BGRA)),
+            ColorSpace::BGRX => Ok(Some(PixelFormat::BGRX)),
             ColorSpace::Unknown => Err("Unknown is not supported by TurboJpeg"),
         }
     }

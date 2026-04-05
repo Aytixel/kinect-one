@@ -13,8 +13,10 @@ impl From<mozjpeg::ColorSpace> for ColorSpace {
             mozjpeg::ColorSpace::JCS_YCbCr => Self::YCbCr,
             mozjpeg::ColorSpace::JCS_EXT_RGB => Self::BGR,
             mozjpeg::ColorSpace::JCS_EXT_RGBA => Self::RGBA,
+            mozjpeg::ColorSpace::JCS_EXT_RGBX => Self::RGBX,
             mozjpeg::ColorSpace::JCS_EXT_BGR => Self::BGR,
             mozjpeg::ColorSpace::JCS_EXT_BGRA => Self::BGRA,
+            mozjpeg::ColorSpace::JCS_EXT_BGRX => Self::BGRX,
             _ => Self::Unknown,
         }
     }
@@ -25,9 +27,11 @@ impl Into<mozjpeg::ColorSpace> for ColorSpace {
         match self {
             ColorSpace::RGB => mozjpeg::ColorSpace::JCS_EXT_RGB,
             ColorSpace::RGBA => mozjpeg::ColorSpace::JCS_EXT_RGBA,
+            ColorSpace::RGBX => mozjpeg::ColorSpace::JCS_EXT_RGBX,
             ColorSpace::YCbCr => mozjpeg::ColorSpace::JCS_YCbCr,
             ColorSpace::BGR => mozjpeg::ColorSpace::JCS_EXT_BGR,
             ColorSpace::BGRA => mozjpeg::ColorSpace::JCS_EXT_BGRA,
+            ColorSpace::BGRX => mozjpeg::ColorSpace::JCS_EXT_BGRX,
             ColorSpace::Unknown => mozjpeg::ColorSpace::JCS_UNKNOWN,
         }
     }

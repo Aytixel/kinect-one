@@ -24,9 +24,11 @@ pub use crate::packet::ColorPacket;
 pub enum ColorSpace {
     RGB,
     RGBA,
+    RGBX,
     YCbCr,
     BGR,
     BGRA,
+    BGRX,
     Unknown,
 }
 
@@ -34,7 +36,7 @@ impl ColorSpace {
     pub const fn bytes_per_pixel(&self) -> usize {
         match self {
             ColorSpace::YCbCr | ColorSpace::RGB | ColorSpace::BGR => 3,
-            ColorSpace::BGRA | ColorSpace::RGBA => 4,
+            ColorSpace::BGRA | ColorSpace::RGBA | ColorSpace::BGRX | ColorSpace::RGBX => 4,
             ColorSpace::Unknown => 0,
         }
     }
