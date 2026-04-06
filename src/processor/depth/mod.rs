@@ -5,7 +5,7 @@ mod opencl;
 #[cfg(feature = "opencl_kde_depth")]
 mod opencl_kde;
 
-use std::{error::Error, f32::EPSILON};
+use std::{error::Error, f32::EPSILON, fmt};
 
 #[cfg(feature = "cpu_depth")]
 pub use cpu::*;
@@ -17,12 +17,12 @@ pub use opencl_kde::*;
 use crate::{
     config::Config,
     data::{IrParams, P0Tables},
-    LUT_SIZE, DEPTH_SIZE,
+    DEPTH_HEIGHT, DEPTH_SIZE, DEPTH_WIDTH, LUT_SIZE,
 };
 
 pub use crate::packet::DepthPacket;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DepthFrame {
     pub width: usize,
     pub height: usize,
@@ -33,6 +33,30 @@ pub struct DepthFrame {
 }
 
 pub type IrFrame = DepthFrame;
+
+impl DepthFrame {
+    pub fn from_packet(buffer: Vec<f32>, packet: &DepthPacket) -> Self {
+        Self {
+            width: DEPTH_WIDTH,
+            height: DEPTH_HEIGHT,
+            buffer,
+            sequence: packet.sequence,
+            timestamp: packet.timestamp,
+        }
+    }
+}
+
+impl fmt::Debug for DepthFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DepthFrame")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("buffer_length", &self.buffer.len())
+            .field("sequence", &self.sequence)
+            .field("timestamp", &self.timestamp)
+            .finish()
+    }
+}
 
 pub trait DepthProcessorTrait {
     fn set_config(&mut self, config: &Config) -> Result<(), Box<dyn Error>>;

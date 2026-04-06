@@ -672,20 +672,8 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
         }
 
         Ok((
-            IrFrame {
-                width: DEPTH_WIDTH,
-                height: DEPTH_HEIGHT,
-                buffer: out_ir.buffer,
-                sequence: input.sequence,
-                timestamp: input.timestamp,
-            },
-            DepthFrame {
-                width: DEPTH_WIDTH,
-                height: DEPTH_HEIGHT,
-                buffer: out_depth.buffer,
-                sequence: input.sequence,
-                timestamp: input.timestamp,
-            },
+            IrFrame::from_packet(out_ir.buffer, &input),
+            DepthFrame::from_packet(out_depth.buffer, &input),
         ))
     }
 }

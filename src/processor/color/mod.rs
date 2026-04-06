@@ -9,7 +9,7 @@ mod zen;
 #[cfg(feature = "zune_color")]
 mod zune;
 
-use std::fmt::{self, Debug};
+use std::fmt;
 
 #[cfg(feature = "fev_color")]
 pub use fev::*;
@@ -89,9 +89,9 @@ impl ColorFrame {
     }
 }
 
-impl Debug for ColorFrame {
+impl fmt::Debug for ColorFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Frame")
+        f.debug_struct("ColorFrame")
             .field("color_space", &self.color_space)
             .field("width", &self.width)
             .field("height", &self.height)

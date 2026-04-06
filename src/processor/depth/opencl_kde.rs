@@ -438,20 +438,8 @@ impl DepthProcessorTrait for OpenCLKdeDepthProcessor {
 
 impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for OpenCLKdeDepthProcessor {
     async fn process(&self, input: DepthPacket) -> Result<(IrFrame, DepthFrame), Box<dyn Error>> {
-        let mut ir_frame = IrFrame {
-            width: DEPTH_WIDTH,
-            height: DEPTH_HEIGHT,
-            buffer: vec![0.0; DEPTH_SIZE],
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-        };
-        let mut depth_frame = DepthFrame {
-            width: DEPTH_WIDTH,
-            height: DEPTH_HEIGHT,
-            buffer: vec![0.0; DEPTH_SIZE],
-            sequence: input.sequence,
-            timestamp: input.timestamp,
-        };
+        let mut ir_frame = IrFrame::from_packet(vec![0.0; DEPTH_SIZE], &input);
+        let mut depth_frame = DepthFrame::from_packet(vec![0.0; DEPTH_SIZE], &input);
 
         let mut event_write = Event::empty();
         let mut event_pps1 = Event::empty();
