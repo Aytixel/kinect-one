@@ -594,7 +594,7 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
         let mut m_filtered: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
         let mut m_max_edge_test: Mat<bool> = Mat::<bool>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
 
-        let indexes = (0..DEPTH_HEIGHT).flat_map(|y| (0..DEPTH_HEIGHT).zip(repeat(y)));
+        let indexes = (0..DEPTH_HEIGHT).flat_map(|y| (0..DEPTH_WIDTH).zip(repeat(y)));
 
         for (x, y) in indexes.clone() {
             self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
