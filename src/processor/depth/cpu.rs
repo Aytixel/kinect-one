@@ -1,4 +1,11 @@
-use std::{error::Error, f32::consts::PI};
+use std::{
+    error::Error,
+    f32::consts::{LOG10_2, LOG2_10, PI},
+    iter::repeat,
+};
+
+#[cfg(feature = "parallel")]
+use rayon::iter::{ParallelBridge, ParallelIterator};
 
 use crate::{
     config::Config, data::P0Tables, processor::ProcessorTrait, settings::DepthProcessorParams,
@@ -7,8 +14,19 @@ use crate::{
 
 use super::{DepthFrame, DepthPacket, DepthProcessorTrait, IrFrame};
 
+const INV_THREE: f32 = 1.0 / 3.0;
 const INV_NINE: f32 = 1.0 / 9.0;
+const INV_FIFTEEN: f32 = 1.0 / 15.0;
+
 const TWO_PI: f32 = 2.0 * PI;
+
+const PHASE_SCALE_0: f32 = 3.0 / TWO_PI;
+const PHASE_SCALE_1: f32 = 15.0 / TWO_PI;
+const PHASE_SCALE_2: f32 = 2.0 / TWO_PI;
+
+const CP_A: f32 = 0.826977;
+const CP_B: f32 = 0.110264;
+const CP_C: f32 = 0.551318;
 
 #[derive(Clone)]
 struct Mat<T: Clone + Copy> {
@@ -193,8 +211,8 @@ impl CpuDepthProcessor {
                     + trig_table[5][offset] * m2 as f32)
                     * ab_multiplier_per_frq;
 
-                let ir_amplitude =
-                    (ir_image_a.powi(2) + ir_image_b.powi(2)).sqrt() * self.params.ab_multiplier;
+                let ir_amplitude = (ir_image_a * ir_image_a + ir_image_b * ir_image_b).sqrt()
+                    * self.params.ab_multiplier;
 
                 m_out[0] = ir_image_a;
                 m_out[1] = ir_image_b;
@@ -255,15 +273,16 @@ impl CpuDepthProcessor {
         }
 
         let mut bilateral_max_edge_test = true;
-        let threshold = (self.params.joint_bilateral_ab_threshold.powi(2)
-            / self.params.ab_multiplier.powi(2))
-        .max(0.0);
+        let threshold = ((self.params.joint_bilateral_ab_threshold
+            * self.params.joint_bilateral_ab_threshold)
+            / (self.params.ab_multiplier * self.params.ab_multiplier))
+            .max(0.0);
 
         for offset in 0..3 {
             let offset = offset * 3;
             let m_ptr_0 = m_ptr[offset];
             let m_ptr_1 = m_ptr[offset + 1];
-            let norm2 = m_ptr_0.powi(2) + m_ptr_1.powi(2);
+            let norm2 = m_ptr_0 * m_ptr_0 + m_ptr_1 * m_ptr_1;
             let inv_norm = if norm2 > 0.0 {
                 norm2.sqrt().recip()
             } else {
@@ -297,7 +316,7 @@ impl CpuDepthProcessor {
                     let other_m_ptr = m.get((x as isize + xi) as usize, (y as isize + yi) as usize);
                     let other_m_0 = other_m_ptr[offset];
                     let other_m_1 = other_m_ptr[offset + 1];
-                    let other_norm2 = other_m_0.powi(2) + other_m_1.powi(2);
+                    let other_norm2 = other_m_0 * other_m_0 + other_m_1 * other_m_1;
                     let other_inv_norm = if other_norm2 > 0.0 {
                         other_norm2.sqrt().recip()
                     } else {
@@ -352,7 +371,7 @@ impl CpuDepthProcessor {
         // phase
         m[0] = if tmp0.is_nan() { 0.0 } else { tmp0 };
         // ir amplitude
-        m[1] = (m[0].powi(2) + m[1].powi(2)).sqrt() * self.params.ab_multiplier;
+        m[1] = (m[0] * m[0] + m[1] * m[1]).sqrt() * self.params.ab_multiplier;
     }
 
     fn process_pixel_stage2(&self, x: usize, y: usize, m: &mut [f32; 9]) -> (f32, f32, f32) {
@@ -360,37 +379,35 @@ impl CpuDepthProcessor {
         self.transform_measurements(&mut m[3..6]);
         self.transform_measurements(&mut m[6..9]);
 
-        let m0 = &m[0..3];
-        let m1 = &m[3..6];
-        let m2 = &m[6..9];
-
-        let ir_sum = m0[1] + m1[1] + m2[1];
-        let ir_min = m0[1].min(m1[1]).min(m2[1]);
+        let [m00, m01, m02, m10, m11, m12, m20, m21, m22] = &m;
+        let ir_sum = m01 + m11 + m21;
+        let ir_min = m01.min(*m11).min(*m21);
 
         let mut phase =
             if ir_min < self.params.individual_ab_threshold || ir_sum < self.params.ab_threshold {
                 0.0
             } else {
-                let t0 = m0[0] / TWO_PI * 3.0;
-                let t1 = m1[0] / TWO_PI * 15.0;
-                let t2 = m2[0] / TWO_PI * 2.0;
+                let t0 = m00 * PHASE_SCALE_0;
+                let t1 = m10 * PHASE_SCALE_1;
+                let t2 = m20 * PHASE_SCALE_2;
 
-                let t5 = f32::floor((t1 - t0) * 0.333333 + 0.5) * 3.0 + t0;
+                let t5 = f32::floor((t1 - t0) * INV_THREE + 0.5) * 3.0 + t0;
                 let t3 = -t2 + t5;
                 let t4 = t3 * 2.0;
 
                 let mut t3 = t3 * if t4.is_sign_positive() { 0.5 } else { -0.5 };
                 t3 = (t3 - f32::floor(t3)) * if t4.is_sign_positive() { 2.0 } else { -2.0 };
 
-                let c2 = 0.5 < t3.abs() && t3.abs() < 1.5;
+                let t3_abs = t3.abs();
+                let c2 = 0.5 < t3_abs && t3_abs < 1.5;
 
                 let t6 = if c2 { t5 + 15.0 } else { t5 };
                 let t7 = if c2 { t1 + 15.0 } else { t1 };
 
                 let mut t8 = (f32::floor((-t2 + t6) * 0.5 + 0.5) * 2.0 + t2) * 0.5;
 
-                let mut t6 = t6 * 0.333333; // = / 3
-                let mut t7 = t7 * 0.066667; // = / 15
+                let mut t6 = t6 * INV_THREE;
+                let mut t7 = t7 * INV_FIFTEEN;
 
                 let t9 = t8 + t6 + t7; // transformed phase measurements
 
@@ -399,31 +416,31 @@ impl CpuDepthProcessor {
                 t8 *= TWO_PI;
 
                 // some cross product
-                let t8_new = t7 * 0.826977 - t8 * 0.110264;
-                let t6_new = t8 * 0.551318 - t6 * 0.826977;
-                let t7_new = t6 * 0.110264 - t7 * 0.551318;
+                let t8_new = t7 * CP_A - t8 * CP_B;
+                let t6_new = t8 * CP_C - t6 * CP_A;
+                let t7_new = t6 * CP_B - t7 * CP_C;
 
-                let norm = t8_new.powi(2) + t6_new.powi(2) + t7_new.powi(2);
+                let norm = t8_new * t8_new + t6_new * t6_new + t7_new * t7_new;
 
-                let ir_x = ((if self.params.ab_confidence_slope > 0.0 {
-                    m0[1].min(m1[1]).min(m2[1])
+                let mut ir_x = ((if self.params.ab_confidence_slope > 0.0 {
+                    ir_min
                 } else {
-                    m0[1].max(m1[1]).max(m2[1])
+                    m01.max(*m11).max(*m21)
                 }
                 .ln()
                     * self.params.ab_confidence_slope
-                    * 0.301030
+                    * LOG10_2
                     + self.params.ab_confidence_offset)
-                    * 3.321928)
+                    * LOG2_10)
                     .exp()
                     .clamp(
                         self.params.min_dealias_confidence,
                         self.params.max_dealias_confidence,
-                    )
-                    .powi(2);
+                    );
+                ir_x *= ir_x;
 
                 if t9 >= 0.0 && ir_x >= norm {
-                    t9 * 0.333333
+                    t9 * INV_THREE
                 } else {
                     0.0
                 }
@@ -447,7 +464,7 @@ impl CpuDepthProcessor {
         };
 
         (
-            ((m0[2] + m1[2] + m2[2]) * 0.3333333 * self.params.ab_output_multiplier).min(65535.0),
+            ((m02 + m12 + m22) * INV_THREE * self.params.ab_output_multiplier).min(65535.0),
             depth,
             ir_sum,
         )
@@ -577,29 +594,43 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
         let mut m_filtered: Mat<[f32; 9]> = Mat::<[f32; 9]>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
         let mut m_max_edge_test: Mat<bool> = Mat::<bool>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
 
+        let indexes = (0..DEPTH_HEIGHT).flat_map(|y| (0..DEPTH_HEIGHT).zip(repeat(y)));
+
+        for (x, y) in indexes.clone() {
+            self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
+        }
+
         // bilateral filtering
         let mut m_ptr = if self.enable_bilateral_filter {
-            for y in 0..DEPTH_HEIGHT {
-                for x in 0..DEPTH_WIDTH {
-                    self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
+            #[cfg(not(feature = "parallel"))]
+            {
+                for (x, y) in indexes.clone() {
+                    *m_max_edge_test.get_mut(x, y) =
+                        self.filter_pixel_stage1(x, y, &m, m_filtered.get_mut(x, y))
                 }
             }
 
-            for y in 0..DEPTH_HEIGHT {
-                for x in 0..DEPTH_WIDTH {
-                    *m_max_edge_test.get_mut(x, y) =
-                        self.filter_pixel_stage1(x, y, &m, m_filtered.get_mut(x, y));
-                }
+            #[cfg(feature = "parallel")]
+            {
+                indexes
+                    .clone()
+                    .par_bridge()
+                    .map(|(x, y)| {
+                        let mut m_out = m_filtered.get(x, y);
+
+                        (x, y, self.filter_pixel_stage1(x, y, &m, &mut m_out), m_out)
+                    })
+                    .collect_vec_list()
+                    .into_iter()
+                    .flatten()
+                    .for_each(|(x, y, max_edge_test, m_out)| {
+                        *m_max_edge_test.get_mut(x, y) = max_edge_test;
+                        *m_filtered.get_mut(x, y) = m_out;
+                    });
             }
 
             m_filtered
         } else {
-            for y in 0..DEPTH_HEIGHT {
-                for x in 0..DEPTH_WIDTH {
-                    self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
-                }
-            }
-
             m
         };
 
@@ -609,44 +640,34 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
         if self.enable_edge_filter {
             let mut depth_ir_sum: Mat<[f32; 3]> = Mat::<[f32; 3]>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
 
-            for y in 0..DEPTH_HEIGHT {
-                for x in 0..DEPTH_WIDTH {
-                    let (out_ir_value, raw_depth, ir_sum) =
-                        self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
+            for (x, y) in indexes.clone() {
+                let (out_ir_value, raw_depth, ir_sum) =
+                    self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
 
-                    *out_ir.get_mut(x, 423 - y) = out_ir_value;
+                *out_ir.get_mut(x, 423 - y) = out_ir_value;
 
-                    let depth_ir_sum_ptr = depth_ir_sum.get_mut(x, y);
+                let depth_ir_sum_ptr = depth_ir_sum.get_mut(x, y);
 
-                    depth_ir_sum_ptr[0] = raw_depth;
-                    depth_ir_sum_ptr[1] = if m_max_edge_test.get(x, y) {
-                        raw_depth
-                    } else {
-                        0.0
-                    };
-                    depth_ir_sum_ptr[2] = ir_sum;
-                }
+                depth_ir_sum_ptr[0] = raw_depth;
+                depth_ir_sum_ptr[1] = if m_max_edge_test.get(x, y) {
+                    raw_depth
+                } else {
+                    0.0
+                };
+                depth_ir_sum_ptr[2] = ir_sum;
             }
 
-            for y in 0..DEPTH_HEIGHT {
-                for x in 0..DEPTH_WIDTH {
-                    *out_depth.get_mut(x, 423 - y) = self.filter_pixel_stage2(
-                        x,
-                        y,
-                        &mut depth_ir_sum,
-                        m_max_edge_test.get(x, y),
-                    );
-                }
+            for (x, y) in indexes {
+                *out_depth.get_mut(x, 423 - y) =
+                    self.filter_pixel_stage2(x, y, &mut depth_ir_sum, m_max_edge_test.get(x, y));
             }
         } else {
-            for y in 0..DEPTH_HEIGHT {
-                for x in 0..DEPTH_WIDTH {
-                    let (out_ir_value, out_depth_value, _) =
-                        self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
+            for (x, y) in indexes {
+                let (out_ir_value, out_depth_value, _) =
+                    self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
 
-                    *out_ir.get_mut(x, 423 - y) = out_ir_value;
-                    *out_depth.get_mut(x, 423 - y) = out_depth_value;
-                }
+                *out_ir.get_mut(x, 423 - y) = out_ir_value;
+                *out_depth.get_mut(x, 423 - y) = out_depth_value;
             }
         }
 

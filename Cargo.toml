@@ -10,6 +10,7 @@ nusb = { git = "https://github.com/FreddyFunk/nusb", branch = "feature/implement
 
 fev = { version = "0.2.3", optional = true }
 winit = { version = "0.30.13", default-features = false, features = ["x11", "wayland", "wayland-dlopen", "rwh_06"], optional = true }
+rayon = { version = "1.11.0", optional = true }
 zenjpeg = { version = "0.8.2", optional = true }
 enough = { version = "0.4.3", optional = true }
 zune-jpeg = { version = "0.5.15", optional = true }
@@ -22,6 +23,7 @@ tokio = { version = "1.51.0", features = ["rt-multi-thread", "macros", "time", "
 
 [features]
 default = [
+    "parallel",
     "fev_color",
     "zen_color",
     "zune_color",
@@ -31,6 +33,8 @@ default = [
     "opencl_depth",
     "opencl_kde_depth",
 ]
+
+parallel = ["dep:rayon"]
 
 fev_color = ["dep:fev", "dep:winit"]
 zen_color = ["dep:zenjpeg", "dep:enough"]
