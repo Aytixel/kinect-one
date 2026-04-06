@@ -17,6 +17,7 @@ impl From<PixelFormat> for ColorSpace {
         match value {
             PixelFormat::RGBA => Self::RGBA,
             PixelFormat::RGBX => Self::RGBX,
+            PixelFormat::YUYV => Self::YCbCr,
             PixelFormat::BGRA => Self::BGRA,
             PixelFormat::BGRX => Self::BGRX,
             _ => Self::Unknown,
@@ -32,7 +33,7 @@ impl TryInto<PixelFormat> for ColorSpace {
             ColorSpace::RGB => Err("RGB is not supported by FeV"),
             ColorSpace::RGBA => Ok(PixelFormat::RGBA),
             ColorSpace::RGBX => Ok(PixelFormat::RGBX),
-            ColorSpace::YCbCr => Err("YCbCr is not supported by FeV"),
+            ColorSpace::YCbCr => Ok(PixelFormat::YUYV),
             ColorSpace::BGR => Err("BGR is not supported by FeV"),
             ColorSpace::BGRA => Ok(PixelFormat::BGRA),
             ColorSpace::BGRX => Ok(PixelFormat::BGRX),
