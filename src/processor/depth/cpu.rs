@@ -4,9 +4,6 @@ use std::{
     iter::repeat,
 };
 
-#[cfg(feature = "parallel")]
-use rayon::iter::{ParallelBridge, ParallelIterator};
-
 use crate::{
     config::Config, data::P0Tables, processor::ProcessorTrait, settings::DepthProcessorParams,
     DEPTH_HEIGHT, DEPTH_SIZE, DEPTH_WIDTH, LUT_SIZE,
@@ -596,38 +593,39 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
 
         let indexes = (0..DEPTH_HEIGHT).flat_map(|y| (0..DEPTH_WIDTH).zip(repeat(y)));
 
+        #[cfg(not(feature = "parallel"))]
         for (x, y) in indexes.clone() {
             self.process_pixel_stage1(x, y, &input.buffer, m.get_mut(x, y));
         }
 
+        #[cfg(feature = "parallel")]
+        depth_mat_iter(|x, y| {
+            let mut m_out = m.get(x, y);
+
+            self.process_pixel_stage1(x, y, &input.buffer, &mut m_out);
+
+            m_out
+        })
+        .for_each(|(x, y, m_out)| *m.get_mut(x, y) = m_out);
+
         // bilateral filtering
         let mut m_ptr = if self.enable_bilateral_filter {
             #[cfg(not(feature = "parallel"))]
-            {
-                for (x, y) in indexes.clone() {
-                    *m_max_edge_test.get_mut(x, y) =
-                        self.filter_pixel_stage1(x, y, &m, m_filtered.get_mut(x, y))
-                }
+            for (x, y) in indexes.clone() {
+                *m_max_edge_test.get_mut(x, y) =
+                    self.filter_pixel_stage1(x, y, &m, m_filtered.get_mut(x, y))
             }
 
             #[cfg(feature = "parallel")]
-            {
-                indexes
-                    .clone()
-                    .par_bridge()
-                    .map(|(x, y)| {
-                        let mut m_out = m_filtered.get(x, y);
+            depth_mat_iter(|x, y| {
+                let mut m_out = m_filtered.get(x, y);
 
-                        (x, y, self.filter_pixel_stage1(x, y, &m, &mut m_out), m_out)
-                    })
-                    .collect_vec_list()
-                    .into_iter()
-                    .flatten()
-                    .for_each(|(x, y, max_edge_test, m_out)| {
-                        *m_max_edge_test.get_mut(x, y) = max_edge_test;
-                        *m_filtered.get_mut(x, y) = m_out;
-                    });
-            }
+                (self.filter_pixel_stage1(x, y, &m, &mut m_out), m_out)
+            })
+            .for_each(|(x, y, (max_edge_test, m_out))| {
+                *m_max_edge_test.get_mut(x, y) = max_edge_test;
+                *m_filtered.get_mut(x, y) = m_out;
+            });
 
             m_filtered
         } else {
@@ -640,6 +638,7 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
         if self.enable_edge_filter {
             let mut depth_ir_sum: Mat<[f32; 3]> = Mat::<[f32; 3]>::new(DEPTH_WIDTH, DEPTH_HEIGHT);
 
+            #[cfg(not(feature = "parallel"))]
             for (x, y) in indexes.clone() {
                 let (out_ir_value, raw_depth, ir_sum) =
                     self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
@@ -657,18 +656,44 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
                 depth_ir_sum_ptr[2] = ir_sum;
             }
 
+            #[cfg(feature = "parallel")]
+            depth_mat_iter(|x, y| {
+                let mut m_out = m_ptr.get(x, y);
+
+                (self.process_pixel_stage2(x, y, &mut m_out), m_out)
+            })
+            .for_each(|(x, y, ((out_ir_value, raw_depth, ir_sum), m_out))| {
+                *m_ptr.get_mut(x, y) = m_out;
+
+                *out_ir.get_mut(x, 423 - y) = out_ir_value;
+
+                let depth_ir_sum_ptr = depth_ir_sum.get_mut(x, y);
+
+                depth_ir_sum_ptr[0] = raw_depth;
+                depth_ir_sum_ptr[1] = if m_max_edge_test.get(x, y) {
+                    raw_depth
+                } else {
+                    0.0
+                };
+                depth_ir_sum_ptr[2] = ir_sum;
+            });
+
             for (x, y) in indexes {
                 *out_depth.get_mut(x, 423 - y) =
                     self.filter_pixel_stage2(x, y, &mut depth_ir_sum, m_max_edge_test.get(x, y));
             }
         } else {
-            for (x, y) in indexes {
-                let (out_ir_value, out_depth_value, _) =
-                    self.process_pixel_stage2(x, y, m_ptr.get_mut(x, y));
+            #[cfg(feature = "parallel")]
+            depth_mat_iter(|x, y| {
+                let mut m_out = m_ptr.get(x, y);
 
+                (self.process_pixel_stage2(x, y, &mut m_out), m_out)
+            })
+            .for_each(|(x, y, ((out_ir_value, raw_depth, _), m_out))| {
+                *m_ptr.get_mut(x, y) = m_out;
                 *out_ir.get_mut(x, 423 - y) = out_ir_value;
-                *out_depth.get_mut(x, 423 - y) = out_depth_value;
-            }
+                *out_depth.get_mut(x, 423 - y) = raw_depth;
+            });
         }
 
         Ok((
@@ -676,4 +701,29 @@ impl ProcessorTrait<DepthPacket, (IrFrame, DepthFrame)> for CpuDepthProcessor {
             DepthFrame::from_packet(out_depth.buffer, &input),
         ))
     }
+}
+
+#[cfg(feature = "parallel")]
+fn depth_mat_iter<T, F: Fn(usize, usize) -> T + Send + Sync + Copy>(
+    loop_callback: F,
+) -> std::iter::Flatten<
+    std::collections::linked_list::IntoIter<
+        Vec<<Vec<(usize, usize, T)> as rayon::iter::IntoParallelIterator>::Item>,
+    >,
+>
+where
+    Vec<(usize, usize, T)>: rayon::iter::IntoParallelIterator,
+{
+    use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
+    (0..DEPTH_HEIGHT)
+        .into_par_iter()
+        .flat_map(|y| {
+            (0..DEPTH_WIDTH)
+                .map(|x| (x, y, loop_callback(x, y)))
+                .collect::<Vec<_>>()
+        })
+        .collect_vec_list()
+        .into_iter()
+        .flatten()
 }
